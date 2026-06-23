@@ -1,0 +1,3276 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AvvikelseLive – SDS DEV 92</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a0f; color: #f0f0f5; font-family: 'Courier New', monospace; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0a0f; }
+    ::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 3px; }
+    select option { background: #16161f; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+function classifyLocation(loc) {
+  if (!loc || typeof loc !== "string") return null;
+  const s = loc.trim().toUpperCase();
+  if (s.startsWith("PD")) return "K62";
+  if (s.startsWith("PH")) return "K63";
+  if (!/^P\d/.test(s)) return null;
+  const stn = parseInt(s.substring(3, 5), 10);
+  if (isNaN(stn)) return null;
+  const afterDash = s.split("-")[1] || "";
+  const lplMatch = afterDash.match(/^(\d+)/);
+  const lpl = lplMatch ? parseInt(lplMatch[1], 10) : null;
+  const lastDigit = lpl !== null ? lpl % 10 : null;
+  const isEven = lastDigit !== null && lastDigit % 2 === 0;
+  const isOdd = lastDigit !== null && lastDigit % 2 === 1;
+  const t7 = s[6], t8 = s[7], t10 = s[9], t11 = s[10];
+  const t1011 = (t10 || "") + (t11 || "");
+  if (s.startsWith("P3")) {
+    const t7d = /[0-9]/.test(t7 || "");
+    const n = parseInt(t1011, 10);
+    if (t7d || t8 === "A" || (t8 === "B" && !isNaN(n) && n >= 1 && n <= 13)) return "K55";
+  }
+  if (stn === 36) return "K61-36";
+  if (s.startsWith("P101")) {
+    if (isEven) return "K51";
+    if (isOdd && stn >= 10 && stn <= 14) return "K52";
+    if (isOdd && stn >= 15 && stn <= 18) return "K53";
+  }
+  if (s.startsWith("P102")) {
+    if (isEven) return "K56";
+    if (isOdd && stn >= 20 && stn <= 23) return "K53";
+    if (isOdd && stn >= 24 && stn <= 27) return "K52";
+  }
+  if (s.startsWith("P4")) { if (isEven) return "K58"; if (isOdd) return "K56"; }
+  if (s.startsWith("P6")) {
+    if (isEven) return "K58";
+    if (isOdd && stn >= 60 && stn <= 67) {
+      if (lpl !== null) { if (lpl <= 43) return "K60"; if (lpl >= 45) return "K59"; }
+    }
+  }
+  if (s.startsWith("P7")) {
+    if (isEven) return "K61-7";
+    if (isOdd && stn >= 71 && stn <= 77) {
+      if (lpl !== null) { if (lpl <= 81) return "K59"; if (lpl >= 83) return "K60"; }
+    }
+  }
+  return null;
+}
+
+function getZon(location) {
+  if (!location) return "?";
+  const l = String(location).toUpperCase();
+  if (l.startsWith("P1")) return "1";
+  if (l.startsWith("P3") || l.startsWith("PD")) return "3";
+  if (l.startsWith("P4") || l.startsWith("P6") || l.startsWith("P7")) return "2";
+  return "?";
+}
+
+function excelDateToISO(val) {
+  if (!val) return null;
+  if (val instanceof Date) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, "0");
+    const d = String(val.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof val === "string") {
+    const v = val.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+    const dotMatch = v.match(/^(\d{4})[./](\d{1,2})[./](\d{1,2})/);
+    if (dotMatch) {
+      return `${dotMatch[1]}-${String(dotMatch[2]).padStart(2,"0")}-${String(dotMatch[3]).padStart(2,"0")}`;
+    }
+    if (/^\d{8}$/.test(v)) {
+      return `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`;
+    }
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, "0");
+      const da = String(d.getDate()).padStart(2, "0");
+      return `${y}-${mo}-${da}`;
+    }
+  }
+  if (typeof val === "number" && val > 19000000 && val < 99999999) {
+    const s = String(val);
+    return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  }
+  if (typeof val === "number") {
+    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+    const y = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const da = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${mo}-${da}`;
+  }
+  return null;
+}
+
+const ORSAKER = [
+  "Saldofel",
+  "Försent påfylld",
+  "Saldo fanns – avvikelse ändå",
+  "Försent påfylld – saldo finns – A-Frame",
+  "Kontrollavvikelse",
+  "Utanför min arbetstid",
+  "Före 08:00",
+  "Okänd",
+  "Övrigt",
+];
+
+const ORSAK_ANSVAR = {
+  "Saldofel": "Inventering",
+  "Försent påfylld": "Påfyllning",
+  "Saldo fanns – avvikelse ändå": "Plockare/System",
+  "Försent påfylld – saldo finns – A-Frame": "Påfyllning A-Frame",
+  "Kontrollavvikelse": "Plockare",
+  "Utanför min arbetstid": "Schemaläggning",
+  "Före 08:00": "Schemaläggning",
+  "Okänd": "—",
+  "Övrigt": "—",
+};
+
+const STORAGE_KEY = "avvikelselive_v1";
+const RADER_KEY = "avvikelselive_rader_v1";
+const GOAL_KEY = "avvikelselive_goal_v1";
+const COST_KEY = "avvikelselive_cost_v1";
+const TIME_KEY = "avvikelselive_time_v1";
+
+function loadCost() {
+  try { const v = localStorage.getItem(COST_KEY); return v ? parseFloat(v) : 63; } catch { return 63; }
+}
+function saveCost(c) {
+  try { localStorage.setItem(COST_KEY, String(c)); } catch(e) {}
+}
+function loadTime() {
+  try { const v = localStorage.getItem(TIME_KEY); return v ? parseFloat(v) : 13; } catch { return 13; }
+}
+function saveTime(t) {
+  try { localStorage.setItem(TIME_KEY, String(t)); } catch(e) {}
+}
+function fmtKr(n) {
+  return Math.round(n).toLocaleString("sv-SE") + " kr";
+}
+function fmtTimmar(mins) {
+  const h = mins / 60;
+  if (h < 10) return h.toFixed(1) + " tim";
+  return Math.round(h).toLocaleString("sv-SE") + " tim";
+}
+
+
+// ── Avgångstider per route ────────────────────────────────────────────────────
+const ROUTE_TIMES = {
+  "101":"09:00","102":"09:00","103":"09:00","112":"09:15","104":"09:30","106":"09:30","109":"09:30",
+  "115":"09:30","127":"09:30","107":"09:35","117":"09:45","108":"09:50","105":"10:00",
+  "111":"10:00","110":"10:00","124":"10:00","138":"10:15","114":"10:30","130":"10:30",
+  "137":"10:45","120":"11:00","123":"11:00","134":"11:00","131":"11:15","132":"11:45",
+  "129":"11:45","135":"12:15","128":"12:00","116":"12:30","119":"12:30","139":"12:30",
+  "140":"13:00","121":"13:00","144":"13:15","136":"13:30","145":"13:30","148":"13:30",
+  "122":"13:30","118":"13:45","125":"14:00","126":"14:10",
+  "214":"16:00","202":"17:30","203":"17:30","204":"17:30","205":"17:30","206":"17:30",
+  "207":"17:30","208":"17:30","209":"17:30","210":"17:30","211":"17:30","212":"17:30",
+  "213":"17:30","215":"17:30","226":"17:30","265":"17:30","224":"18:30","802":"18:30",
+  "260":"19:30","219":"19:30","261":"19:30","262":"19:30","264":"19:30","266":"19:30",
+  "251":"19:30","253":"19:30","254":"19:30","256":"20:30","257":"21:30","218":"21:00",
+  "220":"21:00","221":"21:00","222":"21:00","299":"21:00","225":"21:00","227":"21:00",
+  "228":"21:00","229":"21:00",
+};
+const ROUTE_RANGES = [
+  { from: 271, to: 292, time: "18:00" },
+  { from: 230, to: 244, time: "19:30" },
+  { from: 220, to: 229, time: "21:00" },
+];
+
+function getAvgangstid(routeCode) {
+  const rc = String(routeCode || "").trim();
+  if (!rc) return { tid: null, nastaDag: false };
+  if (ROUTE_TIMES[rc]) return { tid: ROUTE_TIMES[rc], nastaDag: false };
+  const n = parseInt(rc, 10);
+  for (const r of ROUTE_RANGES) {
+    if (!isNaN(n) && n >= r.from && n <= r.to) return { tid: r.time, nastaDag: false };
+  }
+  if (rc.startsWith("8")) return { tid: null, nastaDag: true };
+  if (/^[3456]/.test(rc)) return { tid: "18:00", nastaDag: false };
+  return { tid: null, nastaDag: false };
+}
+
+function minutesBeforeDeparture(devTime, avgTid) {
+  if (!devTime || !avgTid) return null;
+  const [dh, dm] = devTime.split(":").map(Number);
+  const [ah, am] = avgTid.split(":").map(Number);
+  if (isNaN(dh) || isNaN(ah)) return null;
+  return (ah * 60 + am) - (dh * 60 + dm);
+}
+
+function formatMinBefore(mins, nastaDag) {
+  if (nastaDag) return "nästa dag";
+  if (mins === null) return "";
+  if (mins < 0) return `${Math.abs(mins)} min EFTER avgång`;
+  if (mins < 60) return `${mins} min före`;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return m === 0 ? `${h} tim före` : `${h}t ${m}m före`;
+}
+
+function stationToZon(station) {
+  const n = parseInt(station, 10);
+  if (isNaN(n)) return "?";
+  if (n === 36 || n === 50) return "3";
+  if (n >= 10 && n <= 27) return "1";
+  if (n >= 30 && n <= 77) return "2";
+  return "?";
+}
+
+function loadRader() {
+  try { return JSON.parse(localStorage.getItem(RADER_KEY) || "{}"); } catch { return {}; }
+}
+function saveRader(d) {
+  try { localStorage.setItem(RADER_KEY, JSON.stringify(d)); } catch(e) {}
+}
+function loadGoal() {
+  try { const v = localStorage.getItem(GOAL_KEY); return v ? parseFloat(v) : 2.0; } catch { return 2.0; }
+}
+function saveGoal(g) {
+  try { localStorage.setItem(GOAL_KEY, String(g)); } catch(e) {}
+}
+
+function loadData() {
+  try {
+    const local = localStorage.getItem(STORAGE_KEY);
+    if (local) return JSON.parse(local);
+  } catch(e) {}
+  return [];
+}
+
+function saveData(data) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch(e) {
+    // QuotaExceededError = localStorage är full. Datan ligger kvar i minnet denna session,
+    // men sparas INTE. Varna tydligt så användaren kan exportera innan omladdning.
+    if (e && (e.name === "QuotaExceededError" || e.code === 22)) {
+      alert("⚠ Lagringsutrymmet är fullt! Din data sparades INTE permanent.\n\nExportera till Excel NU (Statistik → Exportera) innan du laddar om, annars förloras de senaste ändringarna.");
+    } else {
+      console.warn("localStorage blocked, data lives in memory only this session");
+    }
+  }
+}
+
+// Uppskattar localStorage-användning för AvvikelseLive-nycklarna (i bytes).
+function getStorageBytes() {
+  let total = 0;
+  try {
+    for (const key of [STORAGE_KEY, RADER_KEY, GOAL_KEY, COST_KEY, TIME_KEY]) {
+      const v = localStorage.getItem(key);
+      if (v) total += (key.length + v.length) * 2; // UTF-16 ≈ 2 bytes/tecken
+    }
+  } catch(e) {}
+  return total;
+}
+
+// ── Orsak per scan ────────────────────────────────────────────────────────────
+// Returnerar orsaksfördelningen för EN post, nedbruten per scan.
+// - Har posten events med egna orsaker → räkna varje scan för sig.
+// - Saknar events (gammal data) → hela count på VNR-dagens orsak (oförändrat beteende).
+// Resultat: { orsak: antal, ... } som summerar till postens totala count.
+//
+// VIKTIGT: detta läser bara datan, skriver aldrig. Gammal data berörs inte.
+function orsakBreakdown(record) {
+  const fallback = () => ({ [record.orsak || "Okänd"]: record.count || 0 });
+  if (!record.events || record.events.length === 0) return fallback();
+
+  // Räkna bara events som har ett klockslag (en faktisk scan).
+  const scans = record.events.filter(e => e && e.tid);
+  if (scans.length === 0) return fallback();
+
+  // Samla distinkta event-orsaker (ignorera tomma).
+  const eventOrsaker = scans.map(e => e.orsak).filter(Boolean);
+  const distinct = [...new Set(eventOrsaker)];
+
+  // Lita bara på event-orsaker när de FAKTISKT är blandade (>1 distinkt orsak).
+  // Är alla samma (eller saknas), använd VNR-dagens orsak. Detta skyddar mot äldre
+  // data där alla events råkar bära en auto-stämpel som inte speglar den manuellt
+  // satta dagsorsaken — och mot odelade dagar generellt.
+  if (distinct.length <= 1) return fallback();
+
+  const dist = {};
+  for (const ev of scans) {
+    const o = ev.orsak || record.orsak || "Okänd";
+    dist[o] = (dist[o] || 0) + 1;
+  }
+
+  // Säkerhetskoll: om antal scans inte matchar count (kan hända vid äldre/ojämn data),
+  // skala proportionellt så summan alltid blir record.count.
+  const scanTotal = scans.length;
+  const realCount = record.count || scanTotal;
+  if (scanTotal !== realCount && scanTotal > 0) {
+    const scaled = {};
+    let assigned = 0;
+    const keys = Object.keys(dist);
+    keys.forEach((o, i) => {
+      if (i === keys.length - 1) {
+        scaled[o] = realCount - assigned; // sista får resten (undviker avrundningstapp)
+      } else {
+        const v = Math.round(dist[o] / scanTotal * realCount);
+        scaled[o] = v;
+        assigned += v;
+      }
+    });
+    return scaled;
+  }
+  return dist;
+}
+
+// Bekvämlighets-iterator: anropar fn(orsak, antal) för varje orsak i en lista poster.
+function forEachOrsak(records, fn) {
+  for (const r of records) {
+    const dist = orsakBreakdown(r);
+    for (const [orsak, antal] of Object.entries(dist)) {
+      if (antal > 0) fn(orsak, antal, r);
+    }
+  }
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function Badge({ text, color }) {
+  const colors = {
+    "1": "#4ade80",
+    "2": "#60a5fa",
+    "3": "#f97316",
+    "?": "#6b7280",
+  };
+  return (
+    <span style={{
+      background: colors[text] || "#6b7280",
+      color: "#0a0a0f",
+      borderRadius: 4,
+      padding: "2px 8px",
+      fontSize: 11,
+      fontWeight: 700,
+      fontFamily: "monospace",
+      letterSpacing: 1,
+    }}>
+      Z{text}
+    </span>
+  );
+}
+
+function OrsaksSelect({ value, onChange }) {
+  return (
+    <select
+      value={value || ""}
+      onChange={e => onChange(e.target.value)}
+      style={{
+        background: "#16161f",
+        color: value ? "#f0f0f5" : "#555",
+        border: `1px solid ${value ? "#7c6af7" : "#2a2a3a"}`,
+        borderRadius: 6,
+        padding: "5px 10px",
+        fontSize: 12,
+        cursor: "pointer",
+        width: "100%",
+        outline: "none",
+      }}
+    >
+      <option value="">— välj orsak —</option>
+      {ORSAKER.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+// ── Scan-detaljvy ─────────────────────────────────────────────────────────────
+// Visar alla enskilda scans (events) för en VNR-dag och låter användaren sätta
+// orsak per scan. Auto-detekteringen rörs INTE — varje scan har redan en default-orsak
+// (kontroll om den var i en kedja, annars VNR-dagens orsak). Detaljvyn är frivillig.
+//
+// Props:
+//   record   – posten (med .events)
+//   onClose  – stäng utan att spara
+//   onSave   – (updatedEvents, dominantOrsak) => void
+function ScanDetailModal({ record, onClose, onSave }) {
+  // Avgör om de sparade event-orsakerna faktiskt är blandade. Om alla är samma (eller
+  // saknas), ignorera dem och utgå från VNR-dagens orsak — skyddar mot äldre felstämpling.
+  const _evtOrsaker = (record.events || []).map(e => e && e.orsak).filter(Boolean);
+  const _isMixed = new Set(_evtOrsaker).size > 1;
+  const initial = (record.events && record.events.length)
+    ? record.events.map((ev, i) => ({
+        ...ev,
+        _i: i,
+        orsak: _isMixed ? (ev.orsak || record.orsak || "") : (record.orsak || ""),
+      }))
+    : [];
+  const [evts, setEvts] = useState(initial);
+
+  const setEvOrsak = (idx, val) => {
+    setEvts(prev => prev.map(e => e._i === idx ? { ...e, orsak: val } : e));
+  };
+  const setAll = (val) => {
+    setEvts(prev => prev.map(e => ({ ...e, orsak: val })));
+  };
+
+  // Sammanställning per orsak (för att visa fördelningen + härleda dominant orsak)
+  const orsakCount = {};
+  for (const e of evts) {
+    const o = e.orsak || "(ingen)";
+    orsakCount[o] = (orsakCount[o] || 0) + 1;
+  }
+  const orsakEntries = Object.entries(orsakCount).sort((a, b) => b[1] - a[1]);
+  const dominant = orsakEntries[0]?.[0] === "(ingen)" ? (orsakEntries[1]?.[0] || "") : orsakEntries[0]?.[0];
+  const isMixed = orsakEntries.filter(([o]) => o !== "(ingen)").length > 1;
+
+  const sorted = [...evts].sort((a, b) => (a.tid || "").localeCompare(b.tid || ""));
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000, padding: 20,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: "#0f0f18", border: "1px solid #2a2a3a", borderRadius: 12,
+          maxWidth: 720, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column",
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: "18px 22px", borderBottom: "1px solid #1e1e2e" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <span style={{ fontSize: 16, fontWeight: 800, fontFamily: "monospace", color: "#f0f0f5" }}>{record.vnr}</span>
+            <span style={{ fontSize: 12, color: "#7c6af7" }}>{record.datum}</span>
+            <Badge text={record.zon} />
+            {record.kbana && <span style={{ color: "#f97316", fontSize: 11, fontWeight: 700 }}>{record.kbana}</span>}
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#666" }}>{evts.length} scans</span>
+          </div>
+          {isMixed && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "#e879c5" }}>
+              ⚠ Blandade orsaker: {orsakEntries.filter(([o]) => o !== "(ingen)").map(([o, n]) => `${o} ×${n}`).join(" · ")}
+            </div>
+          )}
+        </div>
+
+        {/* Snabbåtgärd: sätt alla */}
+        <div style={{ padding: "10px 22px", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: "#666" }}>Sätt alla till:</span>
+          <select
+            onChange={e => { if (e.target.value) setAll(e.target.value); e.target.value = ""; }}
+            defaultValue=""
+            style={{ background: "#16161f", color: "#f0f0f5", border: "1px solid #2a2a3a", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}
+          >
+            <option value="">— välj —</option>
+            {ORSAKER.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <span style={{ fontSize: 10, color: "#444" }}>eller sätt per scan nedan</span>
+        </div>
+
+        {/* Scan-lista */}
+        <div style={{ overflowY: "auto", padding: "12px 22px", flex: 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {sorted.map((e) => (
+              <div key={e._i} style={{
+                display: "grid",
+                gridTemplateColumns: "62px 1fr 180px",
+                gap: 10, alignItems: "center",
+                background: e.inKontroll ? "#15101a" : "#13131c",
+                border: `1px solid ${e.inKontroll ? "#3a2348" : "#1e1e2e"}`,
+                borderRadius: 6, padding: "7px 10px",
+              }}>
+                <span style={{ fontFamily: "monospace", fontSize: 12, color: "#7c6af7" }}>🕐 {e.tid || "—"}</span>
+                <div style={{ fontSize: 11, color: "#8a8a9a", fontFamily: "monospace" }}>
+                  {e.location || "—"}
+                  {e.inKontroll && <span style={{ color: "#e879c5", marginLeft: 8, fontWeight: 700 }}>i kedja</span>}
+                  {e.route && <span style={{ color: "#666", marginLeft: 8 }}>Tur {e.route}</span>}
+                  {e.avgangstid && <span style={{ color: "#60a5fa", marginLeft: 6 }}>avg {e.avgangstid}</span>}
+                </div>
+                <OrsaksSelect value={e.orsak} onChange={v => setEvOrsak(e._i, v)} />
+              </div>
+            ))}
+            {sorted.length === 0 && (
+              <div style={{ color: "#555", fontSize: 12, textAlign: "center", padding: "30px 0" }}>
+                Inga scan-detaljer finns sparade för den här posten.<br />
+                <span style={{ fontSize: 11, color: "#444" }}>(Äldre poster importerade innan scan-detaljer infördes.)</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "14px 22px", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 11, color: "#666" }}>
+            Dominant orsak: <strong style={{ color: "#c0c0d0" }}>{dominant || "—"}</strong>
+            {isMixed && <span style={{ color: "#e879c5" }}> (blandad — VNR-dagen får dominant orsak)</span>}
+          </span>
+          <button onClick={onClose} style={{ marginLeft: "auto", background: "#1e1e2e", color: "#888", border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Avbryt</button>
+          <button
+            onClick={() => onSave(evts.map(({ _i, ...rest }) => rest), dominant)}
+            disabled={sorted.length === 0}
+            style={{ background: sorted.length === 0 ? "#1e1e2e" : "#7c6af7", color: sorted.length === 0 ? "#555" : "#fff", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, cursor: sorted.length === 0 ? "default" : "pointer", fontFamily: "inherit" }}
+          >Spara orsaker</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Import Tab ────────────────────────────────────────────────────────────────
+
+function ImportTab({ onSave, existingData }) {
+  const [groups, setGroups] = useState([]);
+  const [importing, setImporting] = useState(false);
+  const [datum, setDatum] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [mergeInfo, setMergeInfo] = useState(null);
+  const [restoreInfo, setRestoreInfo] = useState(null);
+  const [raderInfo, setRaderInfo] = useState(null);
+
+  const handleRaderFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+    let hIdx = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i].map(c => String(c).toLowerCase().trim());
+      if (r.includes("station") && r.includes("rader")) {
+        hIdx = i; break;
+      }
+    }
+    if (hIdx === -1) { alert("Hittade ingen header med Station och Rader."); setImporting(false); return; }
+
+    const headers = rows[hIdx].map(c => String(c).toLowerCase().trim());
+    const stationCol = headers.findIndex(h => h === "station");
+    const raderCol = headers.findIndex(h => h === "rader");
+    const datumCol = headers.findIndex(h => h.includes("datum"));
+
+    const dataRows = rows.slice(hIdx + 1).filter(r => r[stationCol] !== "" && r[raderCol] !== "");
+
+    let detDatum = "";
+    if (datumCol !== -1 && dataRows[0]) {
+      detDatum = excelDateToISO(dataRows[0][datumCol]) || "";
+    }
+    if (!detDatum) { detDatum = datum; }
+
+    const zonRader = { "1": 0, "2": 0, "3": 0 };
+    for (const r of dataRows) {
+      const z = stationToZon(r[stationCol]);
+      const rader = parseInt(r[raderCol], 10) || 0;
+      if (zonRader[z] !== undefined) zonRader[z] += rader;
+    }
+
+    const allRader = loadRader();
+    allRader[detDatum] = zonRader;
+    saveRader(allRader);
+
+    const total = zonRader["1"] + zonRader["2"] + zonRader["3"];
+    setRaderInfo({ datum: detDatum, total, zonRader });
+    setImporting(false);
+    e.target.value = "";
+  };
+
+  const handleAppend = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+
+    const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes("rådata") || n.toLowerCase().includes("radata"));
+    if (!sheetName) {
+      alert("Hittade ingen 'Rådata'-flik i filen.");
+      setImporting(false);
+      return;
+    }
+
+    const sheet = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+    const headers = rows[0].map(c => String(c).toLowerCase().trim());
+    const datumCol = headers.findIndex(h => h.includes("datum"));
+    const vnrCol   = headers.findIndex(h => h.includes("vnr") || h.includes("varunummer"));
+    const locCol   = headers.findIndex(h => h.includes("lagerplats") || h.includes("location"));
+    const kbanaCol = headers.findIndex(h => h.includes("k-bana") || h === "kbana");
+    const zonCol   = headers.findIndex(h => h.includes("zon"));
+    const turCol   = headers.findIndex(h => h === "tur" || h.includes("route"));
+    const avgCol   = headers.findIndex(h => h.includes("avgångstid") || h.includes("avgangstid"));
+    const minCol   = headers.findIndex(h => h.includes("min före") || h.includes("min fore"));
+    const shipCol  = headers.findIndex(h => h.includes("ship to"));
+    const antCol   = headers.findIndex(h => h.includes("antal"));
+    const orsCol   = headers.findIndex(h => h.includes("orsak"));
+    const komCol   = headers.findIndex(h => h.includes("kommentar"));
+
+    const dataRows = rows.slice(1).filter(r => r[datumCol] && r[vnrCol]);
+    const newRecords = dataRows.map(r => ({
+      datum: excelDateToISO(r[datumCol]) || String(r[datumCol]).slice(0, 10),
+      vnr: String(r[vnrCol]).trim(),
+      locations: r[locCol] ? [String(r[locCol]).trim()] : [],
+      kbana: kbanaCol !== -1 ? String(r[kbanaCol] || "").trim() : "",
+      zon: String(r[zonCol] || "").replace("Zon ", "").trim(),
+      routeCode: turCol !== -1 ? String(r[turCol] || "").trim() : "",
+      avgangstid: avgCol !== -1 ? String(r[avgCol] || "").trim().replace("nästa dag", "") : "",
+      nastaDag: avgCol !== -1 && String(r[avgCol] || "").includes("nästa dag"),
+      minForeAvgang: minCol !== -1 && r[minCol] !== "" ? (parseInt(r[minCol]) || null) : null,
+      shipTo: shipCol !== -1 ? String(r[shipCol] || "").trim() : "",
+      count: parseInt(r[antCol]) || 1,
+      orsak: String(r[orsCol] || "").trim(),
+      kommentar: String(r[komCol] || "").trim(),
+      afterHours: 0,
+      beforeWork: 0,
+      hours: [],
+      times: [],
+      events: [],
+    }));
+
+    const existing = (existingData || []);
+    const existingKey = (r) => `${r.datum}__${r.vnr}`;
+    const existingMap = new Map(existing.map(r => [existingKey(r), r]));
+    let added = 0, skipped = 0;
+    for (const r of newRecords) {
+      const k = existingKey(r);
+      if (!existingMap.has(k)) {
+        existingMap.set(k, r);
+        added++;
+      } else {
+        skipped++;
+      }
+    }
+    const merged = [...existingMap.values()];
+    saveData(merged);
+    setRestoreInfo({ count: added, days: [...new Set(newRecords.map(r => r.datum))].length, skipped });
+    setImporting(false);
+    e.target.value = "";
+    setTimeout(() => window.location.reload(), 1500);
+  };
+
+  const handleRestore = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+
+    const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes("rådata") || n.toLowerCase().includes("radata"));
+    if (!sheetName) {
+      alert("Hittade ingen 'Rådata'-flik i filen.");
+      setImporting(false);
+      return;
+    }
+
+    const sheet = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+    const headers = rows[0].map(c => String(c).toLowerCase().trim());
+    const datumCol = headers.findIndex(h => h.includes("datum"));
+    const vnrCol   = headers.findIndex(h => h.includes("vnr") || h.includes("varunummer"));
+    const locCol   = headers.findIndex(h => h.includes("lagerplats") || h.includes("location"));
+    const zonCol   = headers.findIndex(h => h.includes("zon"));
+    const antCol   = headers.findIndex(h => h.includes("antal"));
+    const orsCol   = headers.findIndex(h => h.includes("orsak"));
+    const komCol   = headers.findIndex(h => h.includes("kommentar"));
+
+    const dataRows = rows.slice(1).filter(r => r[datumCol] && r[vnrCol]);
+    const records = dataRows.map(r => ({
+      datum: excelDateToISO(r[datumCol]) || String(r[datumCol]).slice(0, 10),
+      vnr: String(r[vnrCol]).trim(),
+      locations: r[locCol] ? [String(r[locCol]).trim()] : [],
+      zon: String(r[zonCol] || "").replace("Zon ", "").trim(),
+      count: parseInt(r[antCol]) || 1,
+      orsak: String(r[orsCol] || "").trim(),
+      kommentar: String(r[komCol] || "").trim(),
+      afterHours: 0,
+      beforeWork: 0,
+      hours: [],
+      times: [],
+    }));
+
+    await saveData(records);
+    setRestoreInfo({ count: records.length, days: [...new Set(records.map(r => r.datum))].length });
+    setImporting(false);
+    e.target.value = "";
+  };
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    setSaved(false);
+
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+    let headerIdx = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i].map(c => String(c).toLowerCase());
+      if (r.some(c => c.includes("item number")) && r.some(c => c === "location")) {
+        headerIdx = i; break;
+      }
+    }
+    if (headerIdx === -1) {
+      alert("Hittade ingen giltig Book1-header (2nd Item Number + Location).");
+      setImporting(false);
+      return;
+    }
+
+    const headers = rows[headerIdx].map(c => String(c).toLowerCase().trim());
+    const vnrCol    = headers.findIndex(h => h.includes("item number") && !h.includes("branch"));
+    const locCol    = headers.findIndex(h => h === "location");
+    const routeCol  = headers.findIndex(h => h.includes("route"));
+    const shipCol   = headers.findIndex(h => h.includes("ship to"));
+    const timeCol   = headers.findIndex(h => h.includes("time updated"));
+    let dateCol = headers.findIndex(h => h.includes("date updated"));
+    if (dateCol === -1) dateCol = headers.findIndex(h => h.includes("creation date"));
+    if (dateCol === -1) dateCol = headers.findIndex(h => h.includes("date"));
+
+    const dataRows = rows.slice(headerIdx + 1).filter(r => r[vnrCol] && String(r[vnrCol]).trim());
+
+    const parseTimeFi = (raw) => {
+      if (raw === undefined || raw === "") return null;
+      let h = -1, m = -1, s = 0;
+      if (raw instanceof Date) {
+        h = raw.getHours(); m = raw.getMinutes(); s = raw.getSeconds();
+      } else {
+        const str = String(raw).trim();
+        if (str.includes(":")) {
+          const p = str.split(":"); h = parseInt(p[0]); m = parseInt(p[1]); s = parseInt(p[2] || 0);
+        } else {
+          const num = parseInt(String(raw).replace(/\D/g, ""), 10);
+          if (!isNaN(num)) {
+            s = num % 100; m = Math.floor(num / 100) % 100; h = Math.floor(num / 10000);
+          }
+        }
+      }
+      if (h < 0) return null;
+      // JDE_TIME_OFFSET: JD Edwards exporterar "Time Updated" en timme fel mot lokal tid.
+      // Detta justerar tillbaka. OBS: om JDE-exporten ändras (t.ex. vid systemuppgradering
+      // eller om tidszonshanteringen rättas) måste denna rad ses över — annars blir ALLA
+      // tidsstämplar och "min före avgång"-beräkningar fel utan synligt felmeddelande.
+      const JDE_TIME_OFFSET = -1;
+      h = h + JDE_TIME_OFFSET;
+      if (h < 0) h += 24;
+      return { h, m, s };
+    };
+
+    let detectedDatum = "";
+    if (dateCol !== -1 && dataRows[0]) {
+      detectedDatum = excelDateToISO(dataRows[0][dateCol]) || "";
+    }
+    if (detectedDatum) setDatum(detectedDatum);
+
+    const map = new Map();
+    for (const row of dataRows) {
+      const vnr = String(row[vnrCol]).trim();
+      const loc = String(row[locCol] || "").trim();
+      const route = String(row[routeCol] || "").trim();
+      const ship = String(row[shipCol] || "").trim();
+      if (!map.has(vnr)) {
+        map.set(vnr, { vnr, locations: new Set(), routes: new Set(), ships: new Set(),
+          count: 0, afterHours: 0, beforeWork: 0, hours: [], times: [], firstTimeMs: Infinity, events: [] });
+      }
+      const entry = map.get(vnr);
+      entry.count++;
+      if (loc) entry.locations.add(loc);
+      if (route) entry.routes.add(route);
+      if (ship) entry.ships.add(ship);
+
+      const t = parseTimeFi(row[timeCol]);
+      let tStr = "";
+      if (t) {
+        tStr = `${String(t.h).padStart(2,"0")}:${String(t.m).padStart(2,"0")}`;
+        entry.times.push(tStr);
+        const tMs = t.h * 3600000 + t.m * 60000 + t.s * 1000;
+        if (tMs < entry.firstTimeMs) entry.firstTimeMs = tMs;
+        if (t.h > 15 || (t.h === 15 && t.m >= 30)) entry.afterHours++;
+        if (t.h < 8) entry.beforeWork++;
+        entry.hours.push(t.h);
+      }
+
+      const ev = getAvgangstid(route);
+      const evMin = (tStr && ev.tid) ? minutesBeforeDeparture(tStr, ev.tid) : null;
+      entry.events.push({
+        tid: tStr,
+        route,
+        ship,
+        location: loc,
+        avgangstid: ev.tid || "",
+        nastaDag: ev.nastaDag,
+        minForeAvgang: evMin,
+      });
+    }
+
+    const result = [];
+    for (const [vnr, entry] of map.entries()) {
+      const locsArr = [...entry.locations];
+      const routesArr = [...entry.routes];
+      const shipsArr = [...entry.ships];
+      const zon = getZon(locsArr[0]);
+      const kbana = classifyLocation(locsArr[0]);
+      const sortedTimes = entry.times.sort();
+      const firstTime = entry.firstTimeMs === Infinity ? "" : sortedTimes[0];
+
+      const routeCode = routesArr[0] || "";
+      const { tid: avgangstid, nastaDag } = getAvgangstid(routeCode);
+      const minFore = (firstTime && avgangstid) ? minutesBeforeDeparture(firstTime, avgangstid) : null;
+
+      const autoOrsak = entry.beforeWork === entry.count
+        ? "Före 08:00"
+        : entry.afterHours === entry.count
+          ? "Utanför min arbetstid"
+          : "";
+      result.push({
+        vnr,
+        locations: locsArr,
+        routes: routesArr,
+        ships: shipsArr,
+        routeCode,
+        shipTo: shipsArr[0] || "",
+        avgangstid: avgangstid || "",
+        nastaDag,
+        minForeAvgang: minFore,
+        zon,
+        count: entry.count,
+        afterHours: entry.afterHours,
+        beforeWork: entry.beforeWork,
+        hours: entry.hours,
+        times: sortedTimes,
+        firstTime,
+        kbana: kbana || "",
+        orsak: autoOrsak,
+        kommentar: "",
+        events: entry.events,
+      });
+    }
+
+    const KONTROLL_WINDOW_MS = 2 * 60 * 1000;
+    const allScans = [];
+    for (const row of dataRows) {
+      const vnr = String(row[vnrCol]).trim();
+      const loc = String(row[locCol] || "").trim();
+      const locPrefix = loc.slice(0, 2).toUpperCase();
+      const t = parseTimeFi(row[timeCol]);
+      if (t) {
+        const timeMs = (t.h * 3600 + t.m * 60 + t.s) * 1000;
+        allScans.push({ vnr, locPrefix, timeMs, inKontroll: false });
+      }
+    }
+    allScans.sort((a, b) => a.timeMs - b.timeMs);
+    // Mark each individual scan that participates in a kontroll-cluster
+    for (let i = 0; i < allScans.length; i++) {
+      const cluster = [allScans[i]];
+      for (let j = i + 1; j < allScans.length; j++) {
+        if (allScans[j].timeMs - allScans[i].timeMs > KONTROLL_WINDOW_MS) break;
+        if (allScans[j].locPrefix === allScans[i].locPrefix) cluster.push(allScans[j]);
+      }
+      if (cluster.length >= 2) cluster.forEach(s => { s.inKontroll = true; });
+    }
+    // Per VNR: count kontroll-scans vs total scans
+    const kontrollStats = new Map(); // vnr -> { kontroll, total }
+    for (const s of allScans) {
+      if (!kontrollStats.has(s.vnr)) kontrollStats.set(s.vnr, { kontroll: 0, total: 0 });
+      const st = kontrollStats.get(s.vnr);
+      st.total++;
+      if (s.inKontroll) st.kontroll++;
+    }
+    for (const r of result) {
+      const st = kontrollStats.get(r.vnr);
+      r.kontrollScans = st ? st.kontroll : 0;
+      r.kontrollTotal = st ? st.total : 0;
+      // Auto-set Kontroll only when the MAJORITY of scans are in a kontroll-cluster,
+      // and only if no orsak is already set. Mixed cases are flagged, not auto-set.
+      const isMostlyKontroll = st && st.total > 0 && st.kontroll / st.total >= 0.5;
+      if (isMostlyKontroll && !r.orsak) r.orsak = "Kontrollavvikelse";
+    }
+
+    // Tag each individual event with its kontroll-status so the detail view can show
+    // a sensible per-scan default. We match scans back to events by VNR + time.
+    // Build a lookup: "vnr|HH:MM" -> was any scan at that minute in a kontroll-cluster.
+    const scanKontrollByKey = new Map();
+    for (const s of allScans) {
+      // reconstruct HH:MM from timeMs
+      const totalMin = Math.floor(s.timeMs / 60000);
+      const hh = String(Math.floor(totalMin / 60) % 24).padStart(2, "0");
+      const mm = String(totalMin % 60).padStart(2, "0");
+      const key = `${s.vnr}|${hh}:${mm}`;
+      if (s.inKontroll) scanKontrollByKey.set(key, true);
+    }
+    for (const r of result) {
+      if (!r.events) continue;
+      for (const ev of r.events) {
+        const key = `${r.vnr}|${ev.tid}`;
+        ev.inKontroll = scanKontrollByKey.get(key) === true;
+        // Default-orsak per scan = VNR-dagens orsak. inKontroll är BARA en markering
+        // (visas som "i kedja" i detaljvyn) — den sätter INTE orsaken. Annars skulle en
+        // dag som bedöms som t.ex. Saldofel ändå räknas som Kontroll per scan.
+        ev.orsak = r.orsak || "";
+      }
+    }
+
+    const detDatum = detectedDatum || datum;
+    const existing = (existingData || []).filter(r => r.datum === detDatum);
+    const existingByVNR = new Map(existing.map(r => [r.vnr, r]));
+    let updated = 0, added = 0;
+    const merged = [];
+    for (const g of result) {
+      const prev = existingByVNR.get(g.vnr);
+      if (prev) {
+        merged.push({ ...g, orsak: prev.orsak, kommentar: prev.kommentar, alreadyExists: true });
+        updated++;
+      } else {
+        merged.push({ ...g, alreadyExists: false });
+        added++;
+      }
+    }
+    merged.sort((a, b) => (a.firstTime || "99:99").localeCompare(b.firstTime || "99:99"));
+    setGroups(merged);
+    setMergeInfo({ updated, added });
+    setImporting(false);
+  };
+
+  const updateGroup = (vnr, field, val) => {
+    setGroups(prev => prev.map(g => g.vnr === vnr ? { ...g, [field]: val } : g));
+  };
+
+  const handleSave = () => {
+    if (!datum) { alert("Ange datum."); return; }
+    const records = groups.map(g => ({
+      datum,
+      vnr: g.vnr,
+      locations: g.locations,
+      zon: g.zon,
+      count: g.count,
+      afterHours: g.afterHours || 0,
+      beforeWork: g.beforeWork || 0,
+      hours: g.hours || [],
+      times: g.times || [],
+      kbana: g.kbana || "",
+      routeCode: g.routeCode || "",
+      shipTo: g.shipTo || "",
+      avgangstid: g.avgangstid || "",
+      nastaDag: g.nastaDag || false,
+      minForeAvgang: g.minForeAvgang ?? null,
+      orsak: g.orsak || "Okänd",
+      kommentar: g.kommentar,
+      events: g.events || [],
+    }));
+    onSave(records, datum);
+    setSaved(true);
+  };
+
+  const newGroups = groups.filter(g => !g.alreadyExists);
+  const allDone = newGroups.length > 0 && newGroups.every(g => g.orsak);
+  const donePct = newGroups.length ? Math.round(newGroups.filter(g => g.orsak).length / newGroups.length * 100) : 0;
+  const okandWarn = newGroups.filter(g => g.count > 1 && g.orsak === "Okänd");
+  // Blandade fall: VNR med scans både i och utanför kontrollkedja samma dag.
+  // Dessa har troligen mer än en rotorsak och bör granskas manuellt.
+  const mixedWarn = newGroups.filter(g =>
+    g.kontrollScans > 0 && g.kontrollTotal > g.kontrollScans
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 24, flexWrap: "wrap" }}>
+        <label style={{
+          background: "#7c6af7",
+          color: "#fff",
+          borderRadius: 8,
+          padding: "10px 20px",
+          cursor: "pointer",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: 0.5,
+          transition: "opacity .15s",
+        }}>
+          {importing ? "Läser..." : "📂 Ladda avvikelsefil"}
+          <input type="file" accept=".xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
+        </label>
+        <label style={{
+          background: "#1e1e2e",
+          color: "#888",
+          borderRadius: 8,
+          padding: "10px 20px",
+          cursor: "pointer",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: 0.5,
+          border: "1px solid #2a2a3a",
+        }}>
+          ↩ Återställ från export
+          <input type="file" accept=".xlsx,.xls" onChange={handleRestore} style={{ display: "none" }} />
+        </label>
+        <label style={{
+          background: "#1e2e1e",
+          color: "#4ade80",
+          borderRadius: 8,
+          padding: "10px 20px",
+          cursor: "pointer",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: 0.5,
+          border: "1px solid #2a4a2a",
+        }}>
+          ＋ Lägg till från export
+          <input type="file" accept=".xlsx,.xls" onChange={handleAppend} style={{ display: "none" }} />
+        </label>
+        <label style={{
+          background: "#1e1e2e",
+          color: "#888",
+          borderRadius: 8,
+          padding: "10px 20px",
+          cursor: "pointer",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: 0.5,
+          border: "1px solid #2a2a3a",
+        }}>
+          📊 Ladda rader-fil
+          <input type="file" accept=".xlsx,.xls" onChange={handleRaderFile} style={{ display: "none" }} />
+        </label>
+
+        {groups.length > 0 && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <label style={{ fontSize: 12, color: "#888" }}>Datum:</label>
+              <input
+                type="date"
+                value={datum}
+                onChange={e => setDatum(e.target.value)}
+                style={{
+                  background: "#16161f",
+                  border: "1px solid #2a2a3a",
+                  color: "#f0f0f5",
+                  borderRadius: 6,
+                  padding: "6px 10px",
+                  fontSize: 13,
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 12, color: "#888" }}>
+              {newGroups.filter(g => g.orsak).length}/{newGroups.length} nya
+              <div style={{
+                width: 120, height: 4, background: "#2a2a3a", borderRadius: 2, marginTop: 4,
+              }}>
+                <div style={{ width: `${donePct}%`, height: "100%", background: "#7c6af7", borderRadius: 2, transition: "width .3s" }} />
+              </div>
+            </div>
+            <button
+              onClick={handleSave}
+              disabled={saved || !datum}
+              style={{
+                marginLeft: "auto",
+                background: saved ? "#2a2a3a" : !datum ? "#2a2a3a" : allDone ? "#7c6af7" : "#4ade80",
+                color: saved || !datum ? "#555" : "#0a0a0f",
+                border: "none",
+                borderRadius: 8,
+                padding: "10px 24px",
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: saved || !datum ? "not-allowed" : "pointer",
+                letterSpacing: 0.5,
+              }}
+            >
+              {saved ? "✓ Sparat" : !datum ? "Ange datum först" : allDone ? "Spara alla" : `Spara (${newGroups.filter(g => !g.orsak).length} saknar orsak)`}
+            </button>
+          </>
+        )}
+      </div>
+
+      {raderInfo && (
+        <div style={{
+          background: "#0d1520",
+          border: "1px solid #1a3a4a",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: 16,
+          fontSize: 12,
+          color: "#60a5fa",
+        }}>
+          ✓ Sparade rader för <strong>{raderInfo.datum}</strong>: totalt <strong>{raderInfo.total.toLocaleString("sv-SE")}</strong> rader
+          {" "}(Z1: {raderInfo.zonRader["1"].toLocaleString("sv-SE")} · Z2: {raderInfo.zonRader["2"].toLocaleString("sv-SE")} · Z3: {raderInfo.zonRader["3"].toLocaleString("sv-SE")})
+        </div>
+      )}
+
+      {restoreInfo && (
+        <div style={{
+          background: "#0d1a0d",
+          border: "1px solid #1a4a1a",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: 16,
+          fontSize: 12,
+          color: "#4ade80",
+        }}>
+          ✓ Återställde <strong>{restoreInfo.count}</strong> poster från <strong>{restoreInfo.days}</strong> dagar. Ladda om appen för att se historiken.
+        </div>
+      )}
+
+      {mergeInfo && (
+        <div style={{
+          background: "#13131c",
+          border: "1px solid #2a2a3a",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: 16,
+          fontSize: 12,
+          color: "#888",
+          display: "flex",
+          gap: 20,
+        }}>
+          <span>✓ <strong style={{color:"#4ade80"}}>{mergeInfo.updated}</strong> VNR uppdaterade (orsak behållen)</span>
+          <span>+ <strong style={{color:"#7c6af7"}}>{mergeInfo.added}</strong> nya VNR att bedöma</span>
+        </div>
+      )}
+
+      {okandWarn.length > 0 && (
+        <div style={{
+          background: "#1a1200",
+          border: "1px solid #7a5a00",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: 16,
+          fontSize: 12,
+          color: "#f0c040",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+        }}>
+          ⚠ <strong>{okandWarn.length} VNR</strong> har fler än 1 avvikelse men är satta till Okänd:
+          {" "}{okandWarn.map(g => `${g.vnr} (×${g.count})`).join(", ")}
+        </div>
+      )}
+
+      {mixedWarn.length > 0 && (
+        <div style={{
+          background: "#1a0d18",
+          border: "1px solid #6a2a5a",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: 16,
+          fontSize: 12,
+          color: "#e879c5",
+        }}>
+          <div style={{ marginBottom: 4 }}>
+            ⚠ <strong>{mixedWarn.length} VNR</strong> har scans både i kontrollkedja OCH utanför samma dag – granska orsaken, kan ha flera rotorsaker:
+          </div>
+          <div style={{ color: "#c08ab0", lineHeight: 1.6 }}>
+            {mixedWarn.map(g => `${g.vnr} (${g.kontrollScans}/${g.kontrollTotal} i kedja)`).join(" · ")}
+          </div>
+        </div>
+      )}
+
+      {groups.length === 0 && !importing && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#444" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+          <div style={{ fontSize: 14 }}>Ladda upp en X08-fil för att börja</div>
+        </div>
+      )}
+
+      {groups.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "40px 1fr 60px 48px 180px 1fr",
+            gap: 8,
+            padding: "6px 12px",
+            fontSize: 10,
+            color: "#555",
+            letterSpacing: 1,
+            textTransform: "uppercase",
+          }}>
+            <span>#</span><span>VNR / Platser</span><span style={{textAlign:"center"}}>Antal</span><span>Zon</span><span>Orsak</span><span>Kommentar</span>
+          </div>
+
+          {groups.filter(g => !g.alreadyExists).map((g, i) => (
+            <div key={g.vnr} style={{
+              display: "grid",
+              gridTemplateColumns: "40px 1fr 60px 48px 180px 1fr",
+              gap: 8,
+              alignItems: "center",
+              background: g.orsak ? "#13131c" : "#0f0f18",
+              border: `1px solid ${g.orsak ? "#2a2a3a" : "#1e1e2e"}`,
+              borderRadius: 8,
+              padding: "10px 12px",
+              transition: "background .2s",
+            }}>
+              <span style={{ fontSize: 11, color: "#444" }}>{i + 1}</span>
+              <div>
+                <div style={{ fontSize: 13, fontFamily: "monospace", color: "#f0f0f5", letterSpacing: 0.5 }}>
+                  {g.vnr}
+                  {g.firstTime && <span style={{ color: "#7c6af7", marginLeft: 8, fontSize: 11 }}>🕐 {g.firstTime}</span>}
+                </div>
+                <div style={{ fontSize: 11, color: "#8a8a9a", marginTop: 2, fontFamily: "monospace" }}>
+                  {g.locations.slice(0, 2).join(", ")}{g.locations.length > 2 ? ` +${g.locations.length - 2}` : ""}
+                  {g.kbana && <span style={{ color: "#f97316", marginLeft: 6, fontWeight: 700 }}>{g.kbana}</span>}
+                </div>
+                {(g.routeCode || g.shipTo) && (
+                  <div style={{ fontSize: 10, color: "#666", marginTop: 2, fontFamily: "monospace" }}>
+                    {g.routeCode && <span>Tur {g.routeCode}</span>}
+                    {g.routes?.length > 1 && <span style={{ color: "#fbbf24", marginLeft: 4 }}>+{g.routes.length - 1} fler turer</span>}
+                    {g.avgangstid && <span style={{ color: "#60a5fa", marginLeft: 6 }}>avg {g.avgangstid}</span>}
+                    {g.nastaDag && <span style={{ color: "#888", marginLeft: 6 }}>(nästa dag)</span>}
+                    {g.minForeAvgang !== null && g.minForeAvgang !== undefined && (
+                      <span style={{ color: g.minForeAvgang < 60 ? "#f87171" : "#4ade80", marginLeft: 6, fontWeight: 700 }}>
+                        {formatMinBefore(g.minForeAvgang, g.nastaDag)}
+                      </span>
+                    )}
+                    {g.shipTo && <span style={{ color: "#555", marginLeft: 6 }}>→ {g.shipTo}</span>}
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <span style={{
+                  background: "#1e1e2e",
+                  borderRadius: 4,
+                  padding: "2px 8px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: g.count >= 10 ? "#f97316" : "#f0f0f5",
+                  fontFamily: "monospace",
+                }}>
+                  {g.count}
+                </span>
+              </div>
+              <div><Badge text={g.zon} /></div>
+              <OrsaksSelect value={g.orsak} onChange={v => updateGroup(g.vnr, "orsak", v)} />
+              <input
+                placeholder="Kommentar..."
+                value={g.kommentar}
+                onChange={e => updateGroup(g.vnr, "kommentar", e.target.value)}
+                style={{
+                  background: "#16161f",
+                  border: "1px solid #2a2a3a",
+                  color: "#f0f0f5",
+                  borderRadius: 6,
+                  padding: "5px 10px",
+                  fontSize: 12,
+                  outline: "none",
+                  width: "100%",
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Historik Tab ──────────────────────────────────────────────────────────────
+
+function HistorikTab({ data, onDelete, onUpdate, onUpdateEvents, onMove }) {
+  const [filterDatum, setFilterDatum] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [editRow, setEditRow] = useState(null);
+  const [editOrsak, setEditOrsak] = useState("");
+  const [editKommentar, setEditKommentar] = useState("");
+  const [detailRow, setDetailRow] = useState(null); // { datum, vnr } för scan-detaljvy
+  const [moveDate, setMoveDate] = useState(null);
+  const [moveTarget, setMoveTarget] = useState("");
+  const [filterZon, setFilterZon] = useState("");
+  const [filterOrsak, setFilterOrsak] = useState("");
+  const [searchText, setSearchText] = useState("");
+
+  const dates = [...new Set(data.map(r => r.datum))].sort().reverse();
+
+  const filtered = data.filter(r => {
+    if (filterDatum && r.datum !== filterDatum) return false;
+    if (filterZon && r.zon !== filterZon) return false;
+    if (filterOrsak && r.orsak !== filterOrsak) return false;
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      const hay = `${r.vnr || ""} ${r.kommentar || ""} ${r.locations?.join(" ") || ""} ${r.routeCode || ""} ${r.kbana || ""} ${r.shipTo || ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const byDate = {};
+  for (const r of filtered) {
+    if (!byDate[r.datum]) byDate[r.datum] = [];
+    byDate[r.datum].push(r);
+  }
+
+  const sortedDates = Object.keys(byDate).sort().reverse();
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        <select value={filterDatum} onChange={e => setFilterDatum(e.target.value)} style={selectStyle}>
+          <option value="">Alla datum</option>
+          {dates.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={filterZon} onChange={e => setFilterZon(e.target.value)} style={selectStyle}>
+          <option value="">Alla zoner</option>
+          {["1","2","3"].map(z => <option key={z} value={z}>Zon {z}</option>)}
+        </select>
+        <select value={filterOrsak} onChange={e => setFilterOrsak(e.target.value)} style={selectStyle}>
+          <option value="">Alla orsaker</option>
+          {ORSAKER.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+        <input
+          type="text"
+          placeholder="🔍 Sök VNR, kommentar, plats, tur..."
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          style={{
+            background: "#16161f",
+            color: "#f0f0f5",
+            border: "1px solid #2a2a3a",
+            borderRadius: 6,
+            padding: "6px 10px",
+            fontSize: 12,
+            outline: "none",
+            minWidth: 240,
+            fontFamily: "inherit",
+          }}
+        />
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#555", alignSelf: "center" }}>
+          {filtered.length} poster
+        </span>
+      </div>
+
+      {sortedDates.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#444" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
+          <div style={{ fontSize: 14 }}>Ingen historik än</div>
+        </div>
+      )}
+
+      {sortedDates.map(datum => (
+        <div key={datum} style={{ marginBottom: 24 }}>
+          <div style={{
+            fontSize: 11,
+            color: "#7c6af7",
+            letterSpacing: 2,
+            textTransform: "uppercase",
+            fontWeight: 700,
+            marginBottom: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}>
+            {datum}
+            <span style={{ color: "#444", fontWeight: 400, letterSpacing: 0 }}>
+              {byDate[datum].length} unika VNR · {byDate[datum].reduce((s,r) => s + r.count, 0)} avvikelser
+            </span>
+            {confirmDelete === datum ? (
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "#888" }}>Säker?</span>
+                <button
+                  onClick={() => { onDelete(datum); setConfirmDelete(null); }}
+                  style={{
+                    background: "#7a1a1a", color: "#fff", border: "none",
+                    borderRadius: 5, padding: "2px 10px", fontSize: 11,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >Ja, ta bort</button>
+                <button
+                  onClick={() => setConfirmDelete(null)}
+                  style={{
+                    background: "#1e1e2e", color: "#888", border: "none",
+                    borderRadius: 5, padding: "2px 10px", fontSize: 11,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >Avbryt</button>
+              </div>
+            ) : (
+              <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                {moveDate === datum ? (
+                  <>
+                    <input
+                      type="date"
+                      value={moveTarget}
+                      onChange={e => setMoveTarget(e.target.value)}
+                      style={{ background: "#16161f", border: "1px solid #7c6af7", color: "#f0f0f5", borderRadius: 5, padding: "2px 8px", fontSize: 11 }}
+                    />
+                    <button
+                      onClick={() => { if (moveTarget) { onMove(datum, moveTarget, true); setMoveDate(null); setMoveTarget(""); } }}
+                      style={{ background: "#60a5fa", color: "#fff", border: "none", borderRadius: 5, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}
+                    >Endast m. tur</button>
+                    <button
+                      onClick={() => { if (moveTarget) { onMove(datum, moveTarget, false); setMoveDate(null); setMoveTarget(""); } }}
+                      style={{ background: "#7c6af7", color: "#fff", border: "none", borderRadius: 5, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}
+                    >Alla</button>
+                    <button
+                      onClick={() => { setMoveDate(null); setMoveTarget(""); }}
+                      style={{ background: "#1e1e2e", color: "#888", border: "none", borderRadius: 5, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+                    >Avbryt</button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => { setMoveDate(datum); setMoveTarget(datum); }}
+                    style={{ background: "none", border: "1px solid #1e3a5a", color: "#60a5fa", borderRadius: 5, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 }}
+                  >→ Flytta</button>
+                )}
+                <button
+                  onClick={() => setConfirmDelete(datum)}
+                  style={{ background: "none", border: "1px solid #3a1a1a", color: "#7a3030", borderRadius: 5, padding: "2px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 }}
+                >
+                  ✕ Ta bort
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {byDate[datum].sort((a,b) => b.count - a.count).map((r, i) => {
+              const isEditing = editRow?.datum === datum && editRow?.vnr === r.vnr;
+              return (
+                <div key={i} style={{
+                  background: isEditing ? "#16162a" : "#13131c",
+                  border: `1px solid ${isEditing ? "#7c6af7" : "#1e1e2e"}`,
+                  borderRadius: 6,
+                  padding: "8px 12px",
+                  fontSize: 12,
+                }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 48px 1fr 32px", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontFamily: "monospace", color: "#f0f0f5" }}>
+                      {r.vnr}
+                      {r.locations?.length > 0 && (
+                        <span style={{ color: "#8a8a9a", marginLeft: 8, fontSize: 11, fontFamily: "monospace" }}>{r.locations[0]}</span>
+                      )}
+                      {r.kbana && (
+                        <span style={{ color: "#f97316", marginLeft: 6, fontSize: 10, fontWeight: 700 }}>{r.kbana}</span>
+                      )}
+                      {r.times?.length > 0 && (
+                        <span style={{ color: "#7c6af7", marginLeft: 8, fontSize: 10 }}>🕐 {r.times.join(", ")}</span>
+                      )}
+                      {r.routeCode && (
+                        <span style={{ color: "#666", marginLeft: 8, fontSize: 10 }}>
+                          Tur {r.routeCode}
+                          {r.avgangstid && <span style={{ color: "#60a5fa" }}> · avg {r.avgangstid}</span>}
+                          {r.minForeAvgang !== null && r.minForeAvgang !== undefined && (
+                            <span style={{ color: r.minForeAvgang < 60 ? "#f87171" : "#4ade80", fontWeight: 700 }}> · {formatMinBefore(r.minForeAvgang, r.nastaDag)}</span>
+                          )}
+                          {r.nastaDag && <span style={{ color: "#888" }}> · nästa dag</span>}
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ textAlign: "center", fontFamily: "monospace", fontWeight: 700, color: r.count >= 10 ? "#f97316" : "#f0f0f5" }}>×{r.count}</span>
+                    <Badge text={r.zon} />
+                    <span style={{ color: r.orsak === "Okänd" ? "#f97316" : "#a0a0c0", fontSize: 11 }}>
+                      {r.orsak}
+                      {ORSAK_ANSVAR[r.orsak] && ORSAK_ANSVAR[r.orsak] !== "—" && (
+                        <span style={{ color: "#60a5fa", marginLeft: 6, fontSize: 10 }}>→ {ORSAK_ANSVAR[r.orsak]}</span>
+                      )}
+                      {r.kommentar && <span style={{ color: "#555" }}> · {r.kommentar}</span>}
+                    </span>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {r.events?.length > 1 && (
+                        <button
+                          title="Visa enskilda scans & sätt orsak per scan"
+                          onClick={() => setDetailRow({ datum, vnr: r.vnr })}
+                          style={{ background: "none", border: "1px solid #2a2a3a", borderRadius: 5, color: "#888", cursor: "pointer", fontSize: 10, padding: "2px 7px", fontFamily: "inherit", whiteSpace: "nowrap" }}
+                        >⊞ {r.events.length} scans</button>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (isEditing) { setEditRow(null); }
+                          else { setEditRow({ datum, vnr: r.vnr }); setEditOrsak(r.orsak || ""); setEditKommentar(r.kommentar || ""); }
+                        }}
+                        style={{ background: "none", border: "none", color: isEditing ? "#7c6af7" : "#444", cursor: "pointer", fontSize: 14, padding: 0 }}
+                      >✎</button>
+                    </div>
+                  </div>
+                  {isEditing && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+                      <OrsaksSelect value={editOrsak} onChange={v => setEditOrsak(v)} />
+                      <input
+                        placeholder="Kommentar..."
+                        value={editKommentar}
+                        onChange={e => setEditKommentar(e.target.value)}
+                        style={{ background: "#0f0f18", border: "1px solid #2a2a3a", color: "#f0f0f5", borderRadius: 6, padding: "5px 10px", fontSize: 12, outline: "none", flex: 1 }}
+                      />
+                      <button
+                        onClick={() => { onUpdate(datum, r.vnr, editOrsak, editKommentar); setEditRow(null); }}
+                        style={{ background: "#7c6af7", color: "#fff", border: "none", borderRadius: 6, padding: "5px 14px", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
+                      >Spara</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {detailRow && (() => {
+        const rec = data.find(r => r.datum === detailRow.datum && r.vnr === detailRow.vnr);
+        if (!rec) return null;
+        return (
+          <ScanDetailModal
+            record={rec}
+            onClose={() => setDetailRow(null)}
+            onSave={(updatedEvents, dominant) => {
+              onUpdateEvents(detailRow.datum, detailRow.vnr, updatedEvents, dominant);
+              setDetailRow(null);
+            }}
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+// ── Statistik Tab ─────────────────────────────────────────────────────────────
+
+function exportToPDF(filtered, filterDatum, dates, stats) {
+  if (!window.jspdf) { alert("PDF-bibliotek laddas inte."); return; }
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF("p", "mm", "a4");
+  const pageW = 210, pageH = 297, m = 14;
+  let y = 0;
+
+  const C = {
+    bg: [10, 10, 15], card: [19, 19, 28], text: [240, 240, 245],
+    dim: [140, 140, 154], purple: [124, 106, 247], orange: [249, 115, 22],
+    green: [74, 222, 128], blue: [96, 165, 250],
+  };
+
+  pdf.setFillColor(...C.bg);
+  pdf.rect(0, 0, pageW, pageH, "F");
+
+  pdf.setTextColor(...C.text);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(18);
+  pdf.text("AvvikelseLive", m, 18);
+  pdf.setTextColor(...C.purple);
+  pdf.text("– Statistikrapport", m + 42, 18);
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(9);
+  pdf.setTextColor(...C.dim);
+  const period = filterDatum || `${dates[dates.length-1] || ""} - ${dates[0] || ""}`;
+  pdf.text(`Period: ${period}`, m, 25);
+  pdf.text(`Genererad: ${new Date().toLocaleString("sv-SE")}`, m, 30);
+  pdf.setDrawColor(40, 40, 58);
+  pdf.line(m, 34, pageW - m, 34);
+  y = 44;
+
+  const kpis = [
+    { label: "AVVIKELSER", value: stats.totalAvvikelser, color: C.orange },
+    { label: "UNIKA VNR", value: stats.totalVNR, color: C.purple },
+    { label: "DAGAR", value: stats.dagar, color: C.blue },
+    { label: "SNITT/DAG", value: stats.snittDag, color: C.green },
+  ];
+  const cardW = (pageW - m * 2 - 9) / 4;
+  kpis.forEach((k, i) => {
+    const x = m + i * (cardW + 3);
+    pdf.setFillColor(...C.card);
+    pdf.roundedRect(x, y, cardW, 22, 2, 2, "F");
+    pdf.setTextColor(...k.color);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(18);
+    pdf.text(String(k.value), x + 4, y + 11);
+    pdf.setTextColor(...C.dim);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(7);
+    pdf.text(k.label, x + 4, y + 18);
+  });
+  y += 32;
+
+  function barSection(title, rows, maxVal, color) {
+    pdf.setTextColor(...C.dim);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9);
+    pdf.text(title.toUpperCase(), m, y);
+    y += 6;
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8);
+    for (const [label, val] of rows) {
+      if (y > pageH - 20) { pdf.addPage(); pdf.setFillColor(...C.bg); pdf.rect(0,0,pageW,pageH,"F"); y = 20; }
+      pdf.setTextColor(...C.text);
+      pdf.text(String(label).slice(0, 38), m, y);
+      pdf.setTextColor(...C.dim);
+      const pct = stats.totalAvvikelser ? Math.round(val / stats.totalAvvikelser * 100) : 0;
+      pdf.text(`${val} (${pct}%)`, pageW - m, y, { align: "right" });
+      y += 2;
+      pdf.setFillColor(40, 40, 58);
+      pdf.roundedRect(m, y, pageW - m * 2, 2, 1, 1, "F");
+      pdf.setFillColor(...color);
+      const w = (pageW - m * 2) * (val / maxVal);
+      if (w > 0) pdf.roundedRect(m, y, w, 2, 1, 1, "F");
+      y += 7;
+    }
+    y += 4;
+  }
+
+  if (stats.perOrsak.length) {
+    const maxO = Math.max(...stats.perOrsak.map(r => r[1]), 1);
+    barSection("Per orsak", stats.perOrsak, maxO, C.purple);
+  }
+  if (stats.perZon.length) {
+    const maxZ = Math.max(...stats.perZon.map(r => r[1]), 1);
+    barSection("Per zon", stats.perZon, maxZ, C.blue);
+  }
+  if (stats.perKbana.length) {
+    const maxK = Math.max(...stats.perKbana.map(r => r[1]), 1);
+    barSection("Per K-bana", stats.perKbana, maxK, C.orange);
+  }
+
+  const filename = filterDatum ? `avvikelser_rapport_${filterDatum}.pdf` : `avvikelser_rapport.pdf`;
+  try {
+    const dataUri = pdf.output("datauristring");
+    const w = window.open();
+    if (w) {
+      w.location.href = dataUri;
+    } else {
+      pdf.save(filename);
+    }
+  } catch (e) {
+    try { pdf.save(filename); } catch (e2) { alert("Kunde inte skapa PDF: " + e2.message); }
+  }
+}
+
+function exportToExcel(filtered, filterDatum, dates) {
+  const wb = XLSX.utils.book_new();
+
+  const rader = loadRader();
+  const goal = loadGoal();
+  const cost = loadCost();
+  const time = loadTime();
+  const raderDates = filterDatum ? [filterDatum] : dates;
+  const raderPerZon = { "1": 0, "2": 0, "3": 0 };
+  for (const d of raderDates) {
+    if (rader[d]) {
+      raderPerZon["1"] += rader[d]["1"] || 0;
+      raderPerZon["2"] += rader[d]["2"] || 0;
+      raderPerZon["3"] += rader[d]["3"] || 0;
+    }
+  }
+  const raderTotal = raderPerZon["1"] + raderPerZon["2"] + raderPerZon["3"];
+  const prom = (avv, rad) => rad > 0 ? +(avv / rad * 1000).toFixed(2) : "";
+
+  const totalAvvikelser = filtered.reduce((s, r) => s + r.count, 0);
+  const totalVNR = filtered.length;
+  const dagCount = filterDatum ? 1 : dates.length;
+
+  const summRows = [
+    ["AvvikelseLive – Sammanfattning"],
+    ["Exporterad", new Date().toLocaleString("sv-SE")],
+    ["Period", filterDatum || `${dates[dates.length-1] || "–"} – ${dates[0] || "–"}`],
+    [],
+    ["Totalt antal avvikelser", totalAvvikelser],
+    ["Unika VNR", totalVNR],
+    ["Antal dagar", dagCount],
+    ["Snitt per dag", dagCount ? Math.round(totalAvvikelser / dagCount) : 0],
+    [],
+    ["Mål avvikelsegrad (‰)", goal],
+    ["Totalt antal rader", raderTotal || "—"],
+    ["Avvikelsegrad (‰)", raderTotal ? prom(totalAvvikelser, raderTotal) : "—"],
+    [],
+    ["Kostnad per avvikelse (kr)", cost],
+    ["Total kostnad (kr)", Math.round(totalAvvikelser * cost)],
+    ["Minuter per avvikelse", time],
+    ["Total nedlagd tid (tim)", +(totalAvvikelser * time / 60).toFixed(1)],
+    ["Motsvarar heltidstjänster (40h/v)", dagCount ? +((totalAvvikelser * time / 60) / (40 * (dagCount / 5))).toFixed(1) : "—"],
+  ];
+  const wsSumm = XLSX.utils.aoa_to_sheet(summRows);
+  wsSumm["!cols"] = [{ wch: 28 }, { wch: 20 }];
+  XLSX.utils.book_append_sheet(wb, wsSumm, "Sammanfattning");
+
+  const perOrsak = {};
+  for (const r of filtered) {
+    const dist = orsakBreakdown(r);
+    const orsakerInRow = new Set();
+    for (const [o, n] of Object.entries(dist)) {
+      if (!perOrsak[o]) perOrsak[o] = { avvikelser: 0, vnr: 0 };
+      perOrsak[o].avvikelser += n;
+      orsakerInRow.add(o);
+    }
+    // Räkna VNR-dagen för varje orsak den bidrar till (en delad post räknas i flera).
+    for (const o of orsakerInRow) perOrsak[o].vnr++;
+  }
+  const orsakRows = [
+    ["Orsak", "Antal avvikelser", "Unika VNR", "Andel %"],
+    ...Object.entries(perOrsak)
+      .sort((a, b) => b[1].avvikelser - a[1].avvikelser)
+      .map(([o, v]) => [o, v.avvikelser, v.vnr, totalAvvikelser ? +(v.avvikelser / totalAvvikelser * 100).toFixed(1) : 0])
+  ];
+  const wsOrsak = XLSX.utils.aoa_to_sheet(orsakRows);
+  wsOrsak["!cols"] = [{ wch: 32 }, { wch: 20 }, { wch: 12 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsOrsak, "Per orsak");
+
+  const perZon = {};
+  for (const r of filtered) {
+    if (!perZon[r.zon]) perZon[r.zon] = 0;
+    perZon[r.zon] += r.count;
+  }
+  const zonRows = [
+    ["Zon", "Antal avvikelser", "Andel %", "Antal rader", "Avvikelsegrad ‰"],
+    ...Object.entries(perZon)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([z, count]) => [
+        `Zon ${z}`,
+        count,
+        totalAvvikelser ? +(count / totalAvvikelser * 100).toFixed(1) : 0,
+        raderPerZon[z] || "—",
+        raderPerZon[z] ? prom(count, raderPerZon[z]) : "—",
+      ])
+  ];
+  const wsZon = XLSX.utils.aoa_to_sheet(zonRows);
+  wsZon["!cols"] = [{ wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, wsZon, "Per zon");
+
+  const perKbanaExp = {};
+  for (const r of filtered) {
+    if (r.kbana) {
+      if (!perKbanaExp[r.kbana]) perKbanaExp[r.kbana] = 0;
+      perKbanaExp[r.kbana] += r.count;
+    }
+  }
+  const kbanaRows = [
+    ["K-bana", "Antal avvikelser", "Andel %"],
+    ...Object.entries(perKbanaExp)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, count]) => [k, count, totalAvvikelser ? +(count / totalAvvikelser * 100).toFixed(1) : 0])
+  ];
+  const wsKbana = XLSX.utils.aoa_to_sheet(kbanaRows);
+  wsKbana["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsKbana, "Per K-bana");
+
+  const rawRows = [
+    ["Datum", "VNR", "Lagerplats", "K-bana", "Zon", "Tur", "Avgångstid", "Min före avg", "Ship To", "Antal", "Orsak", "Kommentar"],
+    ...filtered.map(r => [
+      r.datum,
+      r.vnr || "",
+      r.locations?.[0] || "",
+      r.kbana || "",
+      `Zon ${r.zon}`,
+      r.routeCode || "",
+      r.nastaDag ? "nästa dag" : (r.avgangstid || ""),
+      r.minForeAvgang !== null && r.minForeAvgang !== undefined ? r.minForeAvgang : "",
+      r.shipTo || "",
+      r.count,
+      r.orsak || "",
+      r.kommentar || "",
+    ])
+  ];
+  const wsRaw = XLSX.utils.aoa_to_sheet(rawRows);
+  wsRaw["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 8 }, { wch: 8 }, { wch: 6 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }, { wch: 32 }, { wch: 30 }];
+  XLSX.utils.book_append_sheet(wb, wsRaw, "Rådata");
+
+  const perAvvRows = [["Datum", "Klockslag", "VNR", "Lagerplats", "K-bana", "Zon", "Tur", "Avgångstid", "Min före avg", "Ship To", "Orsak"]];
+  const perAvvData = [];
+  for (const r of filtered) {
+    if (r.events?.length) {
+      for (const ev of r.events) {
+        perAvvData.push({
+          datum: r.datum,
+          tid: ev.tid || "",
+          vnr: r.vnr || "",
+          loc: ev.location || r.locations?.[0] || "",
+          kbana: classifyLocation(ev.location) || r.kbana || "",
+          zon: `Zon ${getZon(ev.location) !== "?" ? getZon(ev.location) : r.zon}`,
+          route: ev.route || "",
+          avg: ev.nastaDag ? "nästa dag" : (ev.avgangstid || ""),
+          minFore: ev.minForeAvgang !== null && ev.minForeAvgang !== undefined ? ev.minForeAvgang : "",
+          ship: ev.ship || "",
+          orsak: r.orsak || "",
+        });
+      }
+    } else {
+      const times = r.times?.length ? r.times : [""];
+      for (const t of times) {
+        perAvvData.push({
+          datum: r.datum, tid: t, vnr: r.vnr || "",
+          loc: r.locations?.[0] || "", kbana: r.kbana || "", zon: `Zon ${r.zon}`,
+          route: r.routeCode || "", avg: r.nastaDag ? "nästa dag" : (r.avgangstid || ""),
+          minFore: r.minForeAvgang !== null && r.minForeAvgang !== undefined ? r.minForeAvgang : "",
+          ship: r.shipTo || "", orsak: r.orsak || "",
+        });
+      }
+    }
+  }
+  perAvvData.sort((a, b) => (a.datum + a.tid).localeCompare(b.datum + b.tid));
+  for (const d of perAvvData) {
+    perAvvRows.push([d.datum, d.tid, d.vnr, d.loc, d.kbana, d.zon, d.route, d.avg, d.minFore, d.ship, d.orsak]);
+  }
+  const wsPerAvv = XLSX.utils.aoa_to_sheet(perAvvRows);
+  wsPerAvv["!cols"] = [{ wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 22 }, { wch: 10 }, { wch: 8 }, { wch: 6 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 32 }];
+  XLSX.utils.book_append_sheet(wb, wsPerAvv, "Per avvikelse");
+
+  // ── Vecka (nuvarande vs föregående) ──
+  // Use ALL data for week comparison (not filtered), so date filter doesn't break it
+  const allData = filtered.length === 0 ? [] : (() => {
+    // Reconstruct from localStorage to bypass date filter
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return filtered; }
+  })();
+
+  const toMondayLocal = (d) => {
+    const dt = new Date(d);
+    const day = (dt.getDay() + 6) % 7;
+    dt.setDate(dt.getDate() - day);
+    const y = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${mm}-${dd}`;
+  };
+  const isoWeek = (key) => {
+    const start = new Date(key);
+    const d = new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  };
+
+  const weekBuckets = {};
+  for (const r of allData) {
+    const wk = toMondayLocal(r.datum);
+    if (!weekBuckets[wk]) weekBuckets[wk] = [];
+    weekBuckets[wk].push(r);
+  }
+  const weekKeys = Object.keys(weekBuckets).sort().reverse();
+
+  if (weekKeys.length >= 1) {
+    const currKey = weekKeys[0];
+    const prevKey = weekKeys[1];
+    const curr = weekBuckets[currKey] || [];
+    const prevFull = prevKey ? weekBuckets[prevKey] : [];
+
+    // Match prev to same weekdays as current
+    const weekdayIdxExp = (datum) => {
+      const dt = new Date(datum);
+      return (dt.getDay() + 6) % 7;
+    };
+    const currWdays = new Set(curr.map(r => weekdayIdxExp(r.datum)));
+    const prev = prevFull.filter(r => currWdays.has(weekdayIdxExp(r.datum)));
+    const matchedDaysExp = currWdays.size;
+
+    const sumC = (arr) => arr.reduce((s, r) => s + r.count, 0);
+    const sumZon = (arr) => {
+      const m = { "1": 0, "2": 0, "3": 0 };
+      for (const r of arr) if (m[r.zon] !== undefined) m[r.zon] += r.count;
+      return m;
+    };
+    const sumKbana = (arr) => {
+      const m = {};
+      for (const r of arr) {
+        const kb = r.kbana || classifyLocation(r.locations?.[0]) || "";
+        if (kb) m[kb] = (m[kb] || 0) + r.count;
+      }
+      return m;
+    };
+    const critical = (arr) => arr.filter(r => r.minForeAvgang !== null && r.minForeAvgang !== undefined && !r.nastaDag && r.minForeAvgang < 30).reduce((s,r) => s + r.count, 0);
+
+    const currTotal = sumC(curr);
+    const prevTotal = sumC(prev);
+    const diffPct = prevTotal > 0 ? Math.round(((currTotal - prevTotal) / prevTotal) * 100) : null;
+
+    // Rader + promille for current week
+    const sumRaderWeek = (arr) => {
+      let t = 0;
+      const days = [...new Set(arr.map(r => r.datum))];
+      for (const d of days) if (rader[d]) t += (rader[d]["1"] || 0) + (rader[d]["2"] || 0) + (rader[d]["3"] || 0);
+      return t;
+    };
+    const currRader = sumRaderWeek(curr);
+    const prevRader = sumRaderWeek(prev);
+    const currProm = currRader > 0 ? +(currTotal / currRader * 1000).toFixed(2) : null;
+    const prevProm = prevRader > 0 ? +(prevTotal / prevRader * 1000).toFixed(2) : null;
+
+    const daysCurr = [...new Set(curr.map(r => r.datum))];
+    const daysUnderGoal = daysCurr.filter(d => {
+      const dayTotal = curr.filter(r => r.datum === d).reduce((s,r) => s + r.count, 0);
+      const dayRader = rader[d] ? (rader[d]["1"] || 0) + (rader[d]["2"] || 0) + (rader[d]["3"] || 0) : 0;
+      if (dayRader === 0) return false;
+      return (dayTotal / dayRader * 1000) <= goal;
+    }).length;
+    const daysWithRader = daysCurr.filter(d => rader[d]).length;
+
+    // K-bana changes
+    const cKb = sumKbana(curr);
+    const pKb = sumKbana(prev);
+    const allKb = [...new Set([...Object.keys(cKb), ...Object.keys(pKb)])];
+    const kbChanges = allKb.map(k => ({
+      k, curr: cKb[k] || 0, prev: pKb[k] || 0, diff: (cKb[k] || 0) - (pKb[k] || 0),
+    }));
+    const improved = [...kbChanges].filter(c => c.diff < 0).sort((a,b) => a.diff - b.diff);
+    const worsened = [...kbChanges].filter(c => c.diff > 0).sort((a,b) => b.diff - a.diff);
+
+    // Build sheet
+    const cZon = sumZon(curr);
+    const pZon = sumZon(prev);
+
+    const veckaRows = [
+      [`AvvikelseLive – Veckosammanfattning`],
+      [`Nuvarande vecka`, `v.${isoWeek(currKey)} (${currKey})`],
+      [`Föregående vecka`, prevKey ? `v.${isoWeek(prevKey)} (${prevKey})` : "—"],
+      [`Jämförelse`, matchedDaysExp < 7 ? `Matchat mot ${matchedDaysExp} ${matchedDaysExp === 1 ? "dag" : "dagar"} (samma veckodagar)` : "Full vecka"],
+      [],
+      ["JÄMFÖRELSE"],
+      ["", "Denna vecka", "Förra veckan", "Diff", "Diff %"],
+      ["Totalt avvikelser", currTotal, prevTotal, currTotal - prevTotal, diffPct !== null ? `${diffPct}%` : "—"],
+      ["Kritiska (<30 min före avg)", critical(curr), critical(prev), critical(curr) - critical(prev), ""],
+      ["Antal rader", currRader || "—", prevRader || "—", "", ""],
+      ["Avvikelsegrad ‰", currProm !== null ? currProm : "—", prevProm !== null ? prevProm : "—", "", ""],
+      ["Dagar under mål", daysWithRader > 0 ? `${daysUnderGoal}/${daysWithRader}` : "—", "", "", ""],
+      ["Kostnad (kr)", Math.round(currTotal * cost), Math.round(prevTotal * cost), Math.round((currTotal - prevTotal) * cost), diffPct !== null ? `${diffPct}%` : "—"],
+      ["Nedlagd tid (tim)", +(currTotal * time / 60).toFixed(1), +(prevTotal * time / 60).toFixed(1), +((currTotal - prevTotal) * time / 60).toFixed(1), ""],
+      [],
+      ["PER ZON"],
+      ["Zon", "Denna vecka", "Förra veckan", "Diff"],
+      ...["1","2","3"].map(z => [`Zon ${z}`, cZon[z] || 0, pZon[z] || 0, (cZon[z] || 0) - (pZon[z] || 0)]),
+      [],
+      ["TOPP 3 FÖRBÄTTRADE K-BANOR"],
+      ["K-bana", "Förra veckan", "Denna vecka", "Diff"],
+      ...(improved.length === 0 ? [["—", "", "", ""]] : improved.slice(0, 3).map(c => [c.k, c.prev, c.curr, c.diff])),
+      [],
+      ["TOPP 3 FÖRSÄMRADE K-BANOR"],
+      ["K-bana", "Förra veckan", "Denna vecka", "Diff"],
+      ...(worsened.length === 0 ? [["—", "", "", ""]] : worsened.slice(0, 3).map(c => [c.k, c.prev, c.curr, `+${c.diff}`])),
+    ];
+    const wsVecka = XLSX.utils.aoa_to_sheet(veckaRows);
+    wsVecka["!cols"] = [{ wch: 32 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, wsVecka, "Vecka");
+  }
+
+  const filename = filterDatum
+    ? `avvikelser_${filterDatum}.xlsx`
+    : `avvikelser_${dates[dates.length-1] || "export"}_${dates[0] || ""}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
+}
+
+function StatistikTab({ data }) {
+  const [filterDatum, setFilterDatum] = useState("");
+  const [goal, setGoal] = useState(loadGoal());
+  const [editGoal, setEditGoal] = useState(false);
+  const [cost, setCost] = useState(loadCost());
+  const [time, setTime] = useState(loadTime());
+  const [editCost, setEditCost] = useState(false);
+  const [rader] = useState(loadRader());
+  const [trendBy, setTrendBy] = useState("total");
+  const dates = [...new Set(data.map(r => r.datum))].sort().reverse();
+
+  const filtered = filterDatum ? data.filter(r => r.datum === filterDatum) : data;
+  const totalAvvikelser = filtered.reduce((s, r) => s + r.count, 0);
+  const totalVNR = filtered.length;
+  const totalKostnad = totalAvvikelser * cost;
+  const totalMinuter = totalAvvikelser * time;
+
+  const raderDates = filterDatum ? [filterDatum] : dates;
+  const raderPerZon = { "1": 0, "2": 0, "3": 0 };
+  for (const d of raderDates) {
+    if (rader[d]) {
+      raderPerZon["1"] += rader[d]["1"] || 0;
+      raderPerZon["2"] += rader[d]["2"] || 0;
+      raderPerZon["3"] += rader[d]["3"] || 0;
+    }
+  }
+  const raderTotal = raderPerZon["1"] + raderPerZon["2"] + raderPerZon["3"];
+  const hasRader = raderTotal > 0;
+  const promille = (avv, rad) => rad > 0 ? (avv / rad * 1000) : null;
+  const totalPromille = promille(totalAvvikelser, raderTotal);
+
+  const goalColor = (p) => {
+    if (p === null) return "#60a5fa";
+    if (p <= goal) return "#4ade80";
+    if (p <= goal * 1.25) return "#fbbf24";
+    return "#f87171";
+  };
+
+  const perOrsak = {};
+  for (const r of filtered) {
+    const dist = orsakBreakdown(r);
+    const orsakerInRow = new Set();
+    for (const [o, n] of Object.entries(dist)) {
+      if (!perOrsak[o]) perOrsak[o] = { count: 0, rows: 0 };
+      perOrsak[o].count += n;
+      orsakerInRow.add(o);
+    }
+    for (const o of orsakerInRow) perOrsak[o].rows++;
+  }
+
+  const perZon = {};
+  for (const r of filtered) {
+    if (!perZon[r.zon]) perZon[r.zon] = 0;
+    perZon[r.zon] += r.count;
+  }
+
+  const vnrMap = {};
+  for (const r of filtered.filter(r => r.vnr)) {
+    const key = r.vnr;
+    if (!vnrMap[key]) vnrMap[key] = { total: 0, zon: r.zon, location: r.locations?.[0] || "" };
+    vnrMap[key].total += r.count;
+  }
+  const topVNR = Object.entries(vnrMap).sort((a,b) => b[1].total - a[1].total).slice(0, 10);
+
+  const barMax = Math.max(...Object.values(perOrsak).map(v => v.count), 1);
+  const zonColors = { "1": "#4ade80", "2": "#60a5fa", "3": "#f97316", "?": "#6b7280" };
+
+  const buildPdfStats = () => {
+    const dayMap = {};
+    for (const r of filtered) { dayMap[r.datum] = (dayMap[r.datum] || 0) + r.count; }
+    const trend = Object.keys(dayMap).sort().map(d => [d, dayMap[d]]);
+    const pk = {};
+    for (const r of filtered) { if (r.kbana) pk[r.kbana] = (pk[r.kbana] || 0) + r.count; }
+    return {
+      totalAvvikelser,
+      totalVNR,
+      dagar: dates.length,
+      snittDag: dates.length ? Math.round(totalAvvikelser / (filterDatum ? 1 : dates.length)) : 0,
+      perOrsak: Object.entries(perOrsak).sort((a,b) => b[1].count - a[1].count).map(([o,v]) => [o, v.count]),
+      perZon: ["1","2","3"].filter(z => perZon[z]).map(z => [`Zon ${z}`, perZon[z]]),
+      perKbana: Object.entries(pk).sort((a,b) => b[1] - a[1]),
+      trend,
+    };
+  };
+
+  const perKbana = {};
+  for (const r of filtered) {
+    if (r.kbana) {
+      if (!perKbana[r.kbana]) perKbana[r.kbana] = 0;
+      perKbana[r.kbana] += r.count;
+    }
+  }
+  const kbanaRank = Object.entries(perKbana).sort((a, b) => b[1] - a[1]);
+  const kbanaMax = kbanaRank[0]?.[1] || 1;
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 24, alignItems: "center" }}>
+        <select value={filterDatum} onChange={e => setFilterDatum(e.target.value)} style={selectStyle}>
+          <option value="">Alla datum</option>
+          {dates.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <button
+          onClick={() => exportToExcel(filtered, filterDatum, dates)}
+          disabled={filtered.length === 0}
+          style={{
+            marginLeft: "auto",
+            background: filtered.length === 0 ? "#1e1e2e" : "#16a34a",
+            color: filtered.length === 0 ? "#444" : "#fff",
+            border: "none",
+            borderRadius: 8,
+            padding: "8px 20px",
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: filtered.length === 0 ? "default" : "pointer",
+            fontFamily: "inherit",
+            letterSpacing: 0.5,
+          }}
+        >
+          ↓ Exportera Excel
+        </button>
+        <button
+          onClick={() => exportToPDF(filtered, filterDatum, dates, buildPdfStats())}
+          disabled={filtered.length === 0}
+          style={{
+            background: filtered.length === 0 ? "#1e1e2e" : "#dc2626",
+            color: filtered.length === 0 ? "#444" : "#fff",
+            border: "none",
+            borderRadius: 8,
+            padding: "8px 20px",
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: filtered.length === 0 ? "default" : "pointer",
+            fontFamily: "inherit",
+            letterSpacing: 0.5,
+          }}
+        >
+          ↓ PDF-rapport
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 28 }}>
+        {[
+          { label: "Avvikelser", value: totalAvvikelser, color: "#f97316" },
+          { label: "Unika VNR", value: totalVNR, color: "#7c6af7" },
+          { label: "Dagar", value: dates.length, color: "#60a5fa" },
+          { label: "Snitt/dag", value: dates.length ? Math.round(totalAvvikelser / (filterDatum ? 1 : dates.length)) : 0, color: "#4ade80" },
+        ].map(k => (
+          <div key={k.label} style={{
+            background: "#13131c",
+            border: "1px solid #1e1e2e",
+            borderRadius: 10,
+            padding: "16px 20px",
+          }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: k.color, fontFamily: "monospace" }}>{k.value}</div>
+            <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>{k.label}</div>
+          </div>
+        ))}
+        {hasRader && (
+          <div style={{
+            background: "#13131c",
+            border: `1px solid ${goalColor(totalPromille)}40`,
+            borderRadius: 10,
+            padding: "16px 20px",
+          }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: goalColor(totalPromille), fontFamily: "monospace" }}>
+              {totalPromille.toFixed(2)}‰
+            </div>
+            <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+              Avvikelsegrad
+            </div>
+          </div>
+        )}
+        <div style={{ background: "#13131c", border: "1px solid #3a2a15", borderRadius: 10, padding: "16px 20px" }}>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#fbbf24", fontFamily: "monospace" }}>{fmtKr(totalKostnad)}</div>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>Kostnad ({cost} kr/st)</div>
+        </div>
+        <div style={{ background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: "16px 20px" }}>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#f97316", fontFamily: "monospace" }}>{fmtTimmar(totalMinuter)}</div>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>Nedlagd tid ({time} min/st)</div>
+        </div>
+        {(() => {
+          const vals = filtered.filter(r => r.minForeAvgang !== null && r.minForeAvgang !== undefined && !r.nastaDag).map(r => r.minForeAvgang);
+          if (!vals.length) return null;
+          const avg = Math.round(vals.reduce((s,v) => s+v, 0) / vals.length);
+          const kritiska = vals.filter(v => v < 30).length;
+          return (
+            <>
+              <div style={{ background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: "16px 20px" }}>
+                <div style={{ fontSize: 28, fontWeight: 800, color: "#60a5fa", fontFamily: "monospace" }}>{avg}</div>
+                <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>Snitt min före avg</div>
+              </div>
+              <div style={{ background: "#13131c", border: `1px solid ${kritiska > 0 ? "#7a3030" : "#1e1e2e"}`, borderRadius: 10, padding: "16px 20px" }}>
+                <div style={{ fontSize: 28, fontWeight: 800, color: kritiska > 0 ? "#f87171" : "#4ade80", fontFamily: "monospace" }}>{kritiska}</div>
+                <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>{"< 30 min före"}</div>
+              </div>
+            </>
+          );
+        })()}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24, fontSize: 12, color: "#888" }}>
+        <span>🎯 Mål:</span>
+        {editGoal ? (
+          <>
+            <input
+              type="number"
+              step="0.1"
+              value={goal}
+              onChange={e => setGoal(parseFloat(e.target.value) || 0)}
+              style={{ background: "#16161f", border: "1px solid #7c6af7", color: "#f0f0f5", borderRadius: 6, padding: "4px 8px", width: 70, fontSize: 12, fontFamily: "inherit" }}
+            />
+            <span style={{ color: "#555" }}>‰</span>
+            <button onClick={() => { saveGoal(goal); setEditGoal(false); }} style={{ background: "#7c6af7", color: "#fff", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>Spara</button>
+          </>
+        ) : (
+          <>
+            <strong style={{ color: "#c0c0d0" }}>{goal.toFixed(1)} ‰</strong>
+            <button onClick={() => setEditGoal(true)} style={{ background: "none", border: "1px solid #2a2a3a", color: "#888", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Ändra</button>
+            {!hasRader && <span style={{ color: "#555", fontSize: 11 }}>(ladda rader-fil i Import för att se avvikelsegrad)</span>}
+          </>
+        )}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24, fontSize: 12, color: "#888", flexWrap: "wrap" }}>
+        <span>💰 Per avvikelse:</span>
+        {editCost ? (
+          <>
+            <input type="number" step="1" value={cost} onChange={e => setCost(parseFloat(e.target.value) || 0)}
+              style={{ background: "#16161f", border: "1px solid #fbbf24", color: "#f0f0f5", borderRadius: 6, padding: "4px 8px", width: 70, fontSize: 12, fontFamily: "inherit" }} />
+            <span style={{ color: "#555" }}>kr</span>
+            <input type="number" step="1" value={time} onChange={e => setTime(parseFloat(e.target.value) || 0)}
+              style={{ background: "#16161f", border: "1px solid #f97316", color: "#f0f0f5", borderRadius: 6, padding: "4px 8px", width: 60, fontSize: 12, fontFamily: "inherit" }} />
+            <span style={{ color: "#555" }}>min</span>
+            <button onClick={() => { saveCost(cost); saveTime(time); setEditCost(false); }} style={{ background: "#fbbf24", color: "#0a0a0f", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>Spara</button>
+          </>
+        ) : (
+          <>
+            <strong style={{ color: "#fbbf24" }}>{cost} kr</strong>
+            <span style={{ color: "#555" }}>·</span>
+            <strong style={{ color: "#f97316" }}>{time} min</strong>
+            <button onClick={() => setEditCost(true)} style={{ background: "none", border: "1px solid #2a2a3a", color: "#888", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Ändra</button>
+          </>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div style={{ background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20 }}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 16 }}>Per orsak</div>
+          {Object.entries(perOrsak).sort((a,b) => b[1].count - a[1].count).map(([orsak, v]) => (
+            <div key={orsak} style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 12 }}>
+                <span style={{ color: "#c0c0d0" }}>{orsak}</span>
+                <span style={{ color: "#7c6af7", fontFamily: "monospace" }}>{v.count}</span>
+              </div>
+              <div style={{ height: 6, background: "#1e1e2e", borderRadius: 3 }}>
+                <div style={{
+                  height: "100%",
+                  width: `${v.count / barMax * 100}%`,
+                  background: "#7c6af7",
+                  borderRadius: 3,
+                  transition: "width .4s ease",
+                }} />
+              </div>
+            </div>
+          ))}
+          {Object.keys(perOrsak).length === 0 && <div style={{ color: "#444", fontSize: 12 }}>Ingen data</div>}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20 }}>
+            <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 14 }}>Per zon</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              {["1","2","3"].map(z => (
+                <div key={z} style={{
+                  flex: 1,
+                  background: "#0f0f18",
+                  borderRadius: 8,
+                  padding: "12px 8px",
+                  textAlign: "center",
+                  borderTop: `3px solid ${zonColors[z]}`,
+                }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: zonColors[z], fontFamily: "monospace" }}>
+                    {perZon[z] || 0}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>Zon {z}</div>
+                  {hasRader && raderPerZon[z] > 0 && (
+                    <div style={{ fontSize: 12, fontWeight: 700, color: goalColor(promille(perZon[z] || 0, raderPerZon[z])), fontFamily: "monospace", marginTop: 4 }}>
+                      {promille(perZon[z] || 0, raderPerZon[z]).toFixed(2)}‰
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20, flex: 1 }}>
+            <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 14 }}>Topp VNR</div>
+            {topVNR.map(([vnr, info], i) => (
+              <div key={vnr} style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "5px 0",
+                borderBottom: i < topVNR.length - 1 ? "1px solid #1a1a28" : "none",
+                fontSize: 12,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: "#444", fontFamily: "monospace", width: 18, textAlign: "right" }}>{i+1}</span>
+                  <span style={{ fontFamily: "monospace", color: "#c0c0d0" }}>{vnr}</span>
+                  {info.location && <span style={{ fontSize: 11, color: "#8a8a9a", fontFamily: "monospace" }}>{info.location}</span>}
+                  <Badge text={info.zon} />
+                </div>
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#f97316" }}>×{info.total}</span>
+              </div>
+            ))}
+            {topVNR.length === 0 && <div style={{ color: "#444", fontSize: 12 }}>Ingen data</div>}
+          </div>
+        </div>
+      </div>
+
+      {kbanaRank.length > 0 && (
+        <div style={{ background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20, marginTop: 20 }}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 16 }}>Per K-bana</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {kbanaRank.map(([k, v]) => (
+              <div key={k}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 12 }}>
+                  <span style={{ color: "#f97316", fontFamily: "monospace", fontWeight: 700 }}>{k}</span>
+                  <span style={{ color: "#c0c0d0", fontFamily: "monospace" }}>{v} <span style={{ color: "#555", fontSize: 10 }}>({Math.round(v / totalAvvikelser * 100)}%)</span></span>
+                </div>
+                <div style={{ height: 6, background: "#1e1e2e", borderRadius: 3 }}>
+                  <div style={{ height: "100%", width: `${v / kbanaMax * 100}%`, background: "#f97316", borderRadius: 3, transition: "width .4s" }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(() => {
+        const sortedDays = [...new Set(filtered.map(r => r.datum))].sort();
+        if (sortedDays.length < 2) return null;
+
+        const series = {};
+        const seriesColors = {
+          "total": "#7c6af7",
+          "1": "#4ade80", "2": "#60a5fa", "3": "#f97316",
+        };
+        const kbanaPalette = ["#7c6af7","#4ade80","#60a5fa","#f97316","#f87171","#fbbf24","#a78bfa","#34d399","#fb7185","#22d3ee"];
+
+        if (trendBy === "total") {
+          series["total"] = {};
+          for (const d of sortedDays) series["total"][d] = 0;
+          for (const r of filtered) series["total"][r.datum] = (series["total"][r.datum] || 0) + r.count;
+        } else if (trendBy === "zon") {
+          for (const z of ["1","2","3"]) {
+            series[z] = {};
+            for (const d of sortedDays) series[z][d] = 0;
+          }
+          for (const r of filtered) {
+            if (series[r.zon]) series[r.zon][r.datum] = (series[r.zon][r.datum] || 0) + r.count;
+          }
+        } else if (trendBy === "kbana") {
+          const allK = [...new Set(filtered.filter(r => r.kbana).map(r => r.kbana))];
+          const totals = {};
+          for (const k of allK) {
+            totals[k] = filtered.filter(r => r.kbana === k).reduce((s,r) => s+r.count, 0);
+          }
+          const topK = allK.sort((a,b) => totals[b] - totals[a]).slice(0, 5);
+          for (const k of topK) {
+            series[k] = {};
+            for (const d of sortedDays) series[k][d] = 0;
+          }
+          for (const r of filtered) {
+            if (series[r.kbana]) series[r.kbana][r.datum] = (series[r.kbana][r.datum] || 0) + r.count;
+          }
+        }
+
+        const seriesKeys = Object.keys(series);
+        let maxV = 1;
+        for (const k of seriesKeys) for (const d of sortedDays) maxV = Math.max(maxV, series[k][d] || 0);
+
+        const W = 100, H = 40;
+        const xFor = (i) => sortedDays.length === 1 ? 0 : (i / (sortedDays.length - 1)) * W;
+        const yFor = (v) => H - (v / maxV) * H;
+        const colorOf = (key, idx) => seriesColors[key] || kbanaPalette[idx % kbanaPalette.length];
+
+        return (
+          <div style={{ background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20, marginTop: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase" }}>Trend dag för dag</div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {[
+                  { id: "total", label: "Totalt" },
+                  { id: "zon", label: "Per zon" },
+                  { id: "kbana", label: "Per K-bana" },
+                ].map(o => (
+                  <button key={o.id} onClick={() => setTrendBy(o.id)}
+                    style={{
+                      background: trendBy === o.id ? "#7c6af7" : "#1e1e2e",
+                      color: trendBy === o.id ? "#fff" : "#888",
+                      border: "none", borderRadius: 5, padding: "4px 10px", fontSize: 11,
+                      cursor: "pointer", fontFamily: "inherit", fontWeight: 700,
+                    }}>{o.label}</button>
+                ))}
+              </div>
+            </div>
+            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: 160, overflow: "visible" }}>
+              {trendBy === "total" && (
+                <defs>
+                  <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#7c6af7" stopOpacity="0.4" />
+                    <stop offset="100%" stopColor="#7c6af7" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+              )}
+              {seriesKeys.map((k, idx) => {
+                const color = colorOf(k, idx);
+                const pts = sortedDays.map((d, i) => ({ x: xFor(i), y: yFor(series[k][d] || 0) }));
+                const path = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+                return (
+                  <g key={k}>
+                    {trendBy === "total" && <path d={`${path} L ${W} ${H} L 0 ${H} Z`} fill="url(#trendGrad)" />}
+                    <path d={path} fill="none" stroke={color} strokeWidth="0.6" vectorEffect="non-scaling-stroke" />
+                    {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="0.8" fill={color} vectorEffect="non-scaling-stroke" />)}
+                  </g>
+                );
+              })}
+            </svg>
+            <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap", fontSize: 10, color: "#888" }}>
+              {seriesKeys.map((k, idx) => (
+                <span key={k}><span style={{ color: colorOf(k, idx) }}>■</span> {trendBy === "zon" ? `Zon ${k}` : k}</span>
+              ))}
+              <span style={{ marginLeft: "auto", color: "#555" }}>{sortedDays[0]} – {sortedDays[sortedDays.length-1]}</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      <div style={{ background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 16 }}>Avvikelser per timme</div>
+        {(() => {
+          const hourMap = {};
+          for (const r of filtered) {
+            if (r.hours?.length) {
+              for (const h of r.hours) {
+                hourMap[h] = (hourMap[h] || 0) + 1;
+              }
+            }
+          }
+          const maxVal = Math.max(...Object.values(hourMap), 1);
+          const hours = Array.from({ length: 24 }, (_, i) => i);
+          return (
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 80 }}>
+              {hours.map(h => {
+                const val = hourMap[h] || 0;
+                const pct = val / maxVal * 100;
+                return (
+                  <div key={h} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                    <div title={`${h}:00 – ${val} avvikelser`} style={{
+                      width: "100%",
+                      height: `${Math.max(pct, val > 0 ? 4 : 0)}%`,
+                      background: val === 0 ? "#1a1a28" : h < 8 ? "#60a5fa" : h >= 16 || (h === 15) ? "#f97316" : "#7c6af7",
+                      borderRadius: "2px 2px 0 0",
+                      minHeight: val > 0 ? 3 : 0,
+                      transition: "height .3s",
+                    }} />
+                    {(h % 3 === 0) && (
+                      <span style={{ fontSize: 9, color: "#444", lineHeight: 1 }}>{h}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+        <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 10, color: "#555" }}>
+          <span><span style={{ color: "#60a5fa" }}>■</span> Före 08:00</span>
+          <span><span style={{ color: "#7c6af7" }}>■</span> Arbetstid</span>
+          <span><span style={{ color: "#f97316" }}>■</span> Efter 15:30</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Select style ──────────────────────────────────────────────────────────────
+const selectStyle = {
+  background: "#16161f",
+  color: "#f0f0f5",
+  border: "1px solid #2a2a3a",
+  borderRadius: 6,
+  padding: "6px 10px",
+  fontSize: 12,
+  cursor: "pointer",
+  outline: "none",
+};
+
+
+// ── Analys Tab ────────────────────────────────────────────────────────────────
+
+function AnalysTab({ data }) {
+  const [aiResult, setAiResult] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [filterDagar, setFilterDagar] = useState("30");
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - parseInt(filterDagar));
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const filtered = filterDagar === "all"
+    ? data.filter(r => r.vnr)
+    : data.filter(r => r.vnr && r.datum >= cutoffStr);
+
+  if (filtered.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 0", color: "#444" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+        <div style={{ fontSize: 14 }}>Ingen data att analysera</div>
+      </div>
+    );
+  }
+
+  const totalAvv = filtered.reduce((s, r) => s + r.count, 0);
+  const dates = [...new Set(filtered.map(r => r.datum))].sort();
+
+  const zonMap = {};
+  for (const r of filtered) {
+    if (!zonMap[r.zon]) zonMap[r.zon] = { count: 0, vnrs: new Set() };
+    zonMap[r.zon].count += r.count;
+    zonMap[r.zon].vnrs.add(r.vnr);
+  }
+  const zonRank = Object.entries(zonMap).sort((a, b) => b[1].count - a[1].count);
+
+  const vnrDays = {};
+  for (const r of filtered) {
+    if (!vnrDays[r.vnr]) vnrDays[r.vnr] = { days: new Set(), total: 0, zon: r.zon, orsak: r.orsak, location: r.locations?.[0] || "", kbana: r.kbana || classifyLocation(r.locations?.[0]) || "" };
+    vnrDays[r.vnr].days.add(r.datum);
+    vnrDays[r.vnr].total += r.count;
+  }
+
+  // Longest consecutive-day streak (calendar days) for a set of date strings
+  const longestStreak = (daysSet) => {
+    const sorted = [...daysSet].sort();
+    if (sorted.length === 0) return 0;
+    let best = 1, cur = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const prevD = new Date(sorted[i - 1]);
+      const thisD = new Date(sorted[i]);
+      const diffDays = Math.round((thisD - prevD) / 86400000);
+      if (diffDays === 1) { cur++; best = Math.max(best, cur); }
+      else cur = 1;
+    }
+    return best;
+  };
+  // Is the streak still active (includes the most recent data day)?
+  const streakActive = (daysSet, lastDataDay) => {
+    const sorted = [...daysSet].sort();
+    return sorted[sorted.length - 1] === lastDataDay;
+  };
+  const lastDataDay = dates[dates.length - 1];
+
+  const recurringAll = Object.entries(vnrDays)
+    .filter(([, v]) => v.days.size > 1)
+    .map(([vnr, v]) => ({
+      vnr,
+      ...v,
+      dagar: v.days.size,
+      streak: longestStreak(v.days),
+      active: streakActive(v.days, lastDataDay),
+    }))
+    .sort((a, b) => b.streak - a.streak || b.dagar - a.dagar || b.total - a.total);
+  const recurring = recurringAll.slice(0, 8); // kept for AI summary
+
+  const perDay = {};
+  for (const r of filtered) {
+    if (!perDay[r.datum]) perDay[r.datum] = 0;
+    perDay[r.datum] += r.count;
+  }
+  const dayValues = dates.map(d => perDay[d] || 0);
+  const avgFirst = dayValues.slice(0, Math.floor(dayValues.length / 2));
+  const avgLast = dayValues.slice(Math.floor(dayValues.length / 2));
+  const firstHalfAvg = avgFirst.reduce((s, v) => s + v, 0) / (avgFirst.length || 1);
+  const lastHalfAvg = avgLast.reduce((s, v) => s + v, 0) / (avgLast.length || 1);
+  const trendDiff = lastHalfAvg - firstHalfAvg;
+  const trendLabel = trendDiff > 5 ? "↑ Ökande" : trendDiff < -5 ? "↓ Minskande" : "→ Stabil";
+  const trendColor = trendDiff > 5 ? "#f97316" : trendDiff < -5 ? "#4ade80" : "#60a5fa";
+
+  const orsakMap = {};
+  forEachOrsak(filtered, (o, n) => { orsakMap[o] = (orsakMap[o] || 0) + n; });
+  const topOrsak = Object.entries(orsakMap).sort((a, b) => b[1] - a[1])[0];
+
+  // Mest kritiska tidpunkt (timme med flest avvikelser)
+  const hourMap = {};
+  for (const r of filtered) {
+    if (r.hours?.length) for (const h of r.hours) hourMap[h] = (hourMap[h] || 0) + 1;
+  }
+  const topHour = Object.entries(hourMap).sort((a, b) => b[1] - a[1])[0];
+  const totalHourSamples = Object.values(hourMap).reduce((s, v) => s + v, 0);
+
+  // Konkreta åtgärder – regelbaserade, ingen AI
+  const actions = [];
+  // 1) Aktiva streaks (dagar i rad, fortfarande pågående)
+  for (const v of recurringAll.filter(v => v.streak >= 2 && v.active).slice(0, 12)) {
+    actions.push({
+      pri: v.streak >= 3 ? "hög" : "medel",
+      vnr: v.vnr,
+      location: v.location || "",
+      kbana: v.kbana || "",
+      text: `${v.streak} dagar i rad — ${v.orsak === "Saldofel" ? "inventera platsen" : v.orsak === "Försent påfylld" ? "kolla påfyllningsrutin" : "kolla upp orsak"}`,
+      info: `×${v.total} totalt · ${v.orsak || "okänd orsak"}`,
+    });
+  }
+  // 2) Höga upprepningar utan streak (många dagar men inte i rad)
+  for (const v of recurringAll.filter(v => v.streak < 2 && v.dagar >= 3).sort((a,b) => b.dagar - a.dagar).slice(0, 8)) {
+    actions.push({
+      pri: "medel",
+      vnr: v.vnr,
+      location: v.location || "",
+      kbana: v.kbana || "",
+      text: `avvikelse ${v.dagar} olika dagar — återkommande problem`,
+      info: `×${v.total} totalt · ${v.orsak || "okänd orsak"}`,
+    });
+  }
+  // 3) Hög enskild dagsvolym (≥10 på en VNR samma dag)
+  const highSingle = filtered.filter(r => r.count >= 10).sort((a, b) => b.count - a.count).slice(0, 6);
+  for (const r of highSingle) {
+    actions.push({
+      pri: r.count >= 20 ? "hög" : "medel",
+      vnr: r.vnr,
+      location: r.locations?.[0] || "",
+      kbana: r.kbana || classifyLocation(r.locations?.[0]) || "",
+      text: `×${r.count} avvikelser på en dag (${r.datum}) — engångstopp, kolla saldo/påfyllning`,
+      info: `${r.orsak || "okänd orsak"}`,
+    });
+  }
+  // Dedupe by vnr+text, prioritera hög först
+  const seen = new Set();
+  const actionsSorted = actions
+    .filter(a => { const k = a.vnr + a.text; if (seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => (a.pri === "hög" ? 0 : 1) - (b.pri === "hög" ? 0 : 1));
+
+  const handleAI = async () => {
+    setLoading(true);
+    setAiResult("");
+
+    const summary = {
+      period: `${dates[0]} – ${dates[dates.length - 1]}`,
+      totalAvvikelser: totalAvv,
+      antalDagar: dates.length,
+      trend: trendLabel,
+      perZon: zonRank.map(([z, v]) => ({ zon: `Zon ${z}`, antal: v.count, unikaVNR: v.vnrs.size })),
+      perOrsak: Object.entries(orsakMap).sort((a, b) => b[1] - a[1]).map(([o, c]) => ({ orsak: o, antal: c })),
+      återkommandeVNR: recurring.map(v => ({ vnr: v.vnr, dagar: v.dagar, streak: v.streak, total: v.total, orsak: v.orsak })),
+    };
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: `Du är en lageranalytiker på ett läkemedelsvarulager (SDS/Tamro). Analysera följande avvikelsedata och ge en konkret, handlingsorienterad sammanfattning på svenska. Fokusera på kritiska mönster, rotorsaker och förslag på åtgärder. Var direkt och specifik – inga floskler.\n\nData:\n${JSON.stringify(summary, null, 2)}`
+          }]
+        })
+      });
+      const d = await res.json();
+      const text = d.content?.find(c => c.type === "text")?.text || "Ingen respons.";
+      setAiResult(text);
+    } catch (e) {
+      setAiResult("Fel vid API-anrop: " + e.message);
+    }
+    setLoading(false);
+  };
+
+  const cardStyle = {
+    background: "#13131c",
+    border: "1px solid #1e1e2e",
+    borderRadius: 10,
+    padding: 20,
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 24, alignItems: "center" }}>
+        <select value={filterDagar} onChange={e => { setFilterDagar(e.target.value); setAiResult(""); }} style={selectStyle}>
+          <option value="3">Senaste 3 dagarna</option>
+          <option value="7">Senaste 7 dagarna</option>
+          <option value="14">Senaste 14 dagarna</option>
+          <option value="30">Senaste 30 dagarna</option>
+          <option value="all">All historik</option>
+        </select>
+        <span style={{ fontSize: 12, color: "#555" }}>{filtered.length} poster · {totalAvv} avvikelser · {dates.length} dagar</span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+        <div style={cardStyle}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Trend</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: trendColor, fontFamily: "monospace" }}>{trendLabel}</div>
+          <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+            Snitt första halvan: {Math.round(firstHalfAvg)}/dag → andra halvan: {Math.round(lastHalfAvg)}/dag
+          </div>
+        </div>
+
+        <div style={cardStyle}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Kritisk zon</div>
+          {zonRank[0] && (
+            <>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "#f97316", fontFamily: "monospace" }}>
+                Zon {zonRank[0][0]}
+              </div>
+              <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+                {zonRank[0][1].count} avvikelser · {zonRank[0][1].vnrs.size} unika VNR
+                {" · "}{Math.round(zonRank[0][1].count / totalAvv * 100)}% av totalt
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={cardStyle}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Vanligaste orsak</div>
+          {topOrsak && (
+            <>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#7c6af7" }}>{topOrsak[0]}</div>
+              <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+                {topOrsak[1]} avvikelser · {Math.round(topOrsak[1] / totalAvv * 100)}% av totalt
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={cardStyle}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Återkommande VNR</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#60a5fa", fontFamily: "monospace" }}>{recurringAll.length}</div>
+          <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>VNR med avvikelse på fler än 1 dag</div>
+        </div>
+      </div>
+
+      {/* Mest kritiska tidpunkt + snabbfakta */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+        <div style={cardStyle}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Mest kritiska tidpunkt</div>
+          {topHour ? (
+            <>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "#f97316", fontFamily: "monospace" }}>
+                {String(topHour[0]).padStart(2, "0")}–{String((parseInt(topHour[0]) + 1) % 24).padStart(2, "0")}
+              </div>
+              <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+                {topHour[1]} avvikelser registrerade denna timme
+                {totalHourSamples > 0 && ` · ${Math.round(topHour[1] / totalHourSamples * 100)}% av alla tidsstämplade`}
+              </div>
+            </>
+          ) : <div style={{ color: "#444", fontSize: 12 }}>Ingen tidsdata</div>}
+        </div>
+
+        <div style={cardStyle}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Aktiva streaks</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#f87171", fontFamily: "monospace" }}>
+            {recurringAll.filter(v => v.streak >= 2 && v.active).length}
+          </div>
+          <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>VNR med pågående avvikelse-streak (≥2 dagar i rad)</div>
+        </div>
+      </div>
+
+      {/* Konkreta åtgärder – regelbaserade */}
+      {actionsSorted.length > 0 && (
+        <div style={{ ...cardStyle, marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 14 }}>
+            ⚡ Att kolla upp – konkreta åtgärder
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {actionsSorted.map((a, i) => (
+              <div key={i} style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                background: "#0f0f18",
+                borderRadius: 6,
+                borderLeft: `3px solid ${a.pri === "hög" ? "#f87171" : "#fbbf24"}`,
+                padding: "10px 12px",
+                fontSize: 12,
+              }}>
+                <span style={{
+                  background: a.pri === "hög" ? "#3a1515" : "#3a3015",
+                  color: a.pri === "hög" ? "#f87171" : "#fbbf24",
+                  borderRadius: 4, padding: "2px 7px", fontSize: 10, fontWeight: 700,
+                  textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap", marginTop: 1,
+                }}>{a.pri}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "#f0f0f5", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span>VNR <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>{a.vnr}</span></span>
+                    {a.location && (
+                      <span style={{
+                        background: "#1a2535", color: "#7cc4ff", fontFamily: "monospace",
+                        fontWeight: 700, fontSize: 12, borderRadius: 4, padding: "2px 8px",
+                        letterSpacing: 0.3,
+                      }}>📍 {a.location}</span>
+                    )}
+                    {a.kbana && (
+                      <span style={{ color: "#f97316", fontWeight: 700, fontSize: 11 }}>{a.kbana}</span>
+                    )}
+                  </div>
+                  <div style={{ color: "#c0c0d0", marginTop: 4 }}>{a.text}</div>
+                  {a.info && <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{a.info}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {recurringAll.length > 0 && (
+        <div style={{ ...cardStyle, marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 14 }}>
+            Återkommande VNR – alla ({recurringAll.length})
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 70px 70px 55px 1fr", gap: 8, padding: "0 12px 6px", fontSize: 10, color: "#555", letterSpacing: 1, textTransform: "uppercase" }}>
+            <span>VNR / Plats</span><span>Längsta rad</span><span>Dagar</span><span>Totalt</span><span>Zon</span><span>Orsak</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 420, overflowY: "auto" }}>
+            {recurringAll.map((v) => (
+              <div key={v.vnr} style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 90px 70px 70px 55px 1fr",
+                gap: 8,
+                alignItems: "center",
+                background: v.active && v.streak >= 2 ? "#15100f" : "#0f0f18",
+                border: v.active && v.streak >= 3 ? "1px solid #7a3030" : "1px solid transparent",
+                borderRadius: 6,
+                padding: "8px 12px",
+                fontSize: 12,
+              }}>
+                <span style={{ fontFamily: "monospace", color: "#f0f0f5" }}>
+                  {v.vnr}
+                  {v.location && <span style={{ fontSize: 11, color: "#8a8a9a", marginLeft: 8 }}>{v.location}</span>}
+                  {v.kbana && <span style={{ color: "#f97316", marginLeft: 6, fontSize: 10, fontWeight: 700 }}>{v.kbana}</span>}
+                </span>
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: v.streak >= 3 ? "#f87171" : v.streak >= 2 ? "#fbbf24" : "#888" }}>
+                  {v.streak} {v.streak === 1 ? "dag" : "dagar"}{v.active && v.streak >= 2 ? " ●" : ""}
+                </span>
+                <span style={{ color: "#f97316", fontFamily: "monospace" }}>{v.dagar}</span>
+                <span style={{ color: "#888", fontFamily: "monospace" }}>×{v.total}</span>
+                <Badge text={v.zon} />
+                <span style={{ color: "#555", fontSize: 11 }}>{v.orsak || "—"}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, color: "#444", marginTop: 10 }}>
+            ● = pågående streak (inkluderar senaste datadagen) · Röd ram = ≥3 dagar i rad och fortfarande aktiv
+          </div>
+        </div>
+      )}
+
+      <div style={cardStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase" }}>AI-analys</div>
+          <button
+            onClick={handleAI}
+            disabled={loading}
+            style={{
+              background: loading ? "#1e1e2e" : "#7c6af7",
+              color: loading ? "#555" : "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "8px 20px",
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: loading ? "default" : "pointer",
+              fontFamily: "inherit",
+              letterSpacing: 0.5,
+            }}
+          >
+            {loading ? "Analyserar..." : "✦ Analysera med Claude"}
+          </button>
+        </div>
+        {aiResult ? (
+          <div style={{
+            fontSize: 13,
+            color: "#c0c0d0",
+            lineHeight: 1.7,
+            whiteSpace: "pre-wrap",
+            borderTop: "1px solid #1e1e2e",
+            paddingTop: 14,
+          }}>
+            {aiResult}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: "#444" }}>
+            Klicka på knappen för att få en AI-driven sammanfattning av mönster och rotorsaker.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Vecka Tab ─────────────────────────────────────────────────────────────────
+
+function VeckaTab({ data }) {
+  const toMonday = (d) => {
+    const dt = new Date(d);
+    const day = (dt.getDay() + 6) % 7;
+    dt.setDate(dt.getDate() - day);
+    return dt;
+  };
+  const fmtDate = (dt) => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const da = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${da}`;
+  };
+  const weekKey = (datum) => fmtDate(toMonday(datum));
+
+  const weeks = {};
+  for (const r of data) {
+    const k = weekKey(r.datum);
+    if (!weeks[k]) weeks[k] = [];
+    weeks[k].push(r);
+  }
+  const sortedWeekKeys = Object.keys(weeks).sort().reverse();
+
+  const [weekIdx, setWeekIdx] = useState(0);
+  if (sortedWeekKeys.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 0", color: "#444" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>📅</div>
+        <div style={{ fontSize: 14 }}>Ingen data att summera</div>
+      </div>
+    );
+  }
+  const currentKey = sortedWeekKeys[weekIdx] || sortedWeekKeys[0];
+  const prevKey = sortedWeekKeys[weekIdx + 1];
+  const current = weeks[currentKey] || [];
+  const prevFull = prevKey ? weeks[prevKey] : [];
+
+  // Match prev week to same weekdays as current (apples-to-apples).
+  // Weekday index: Mon=0 ... Sun=6.
+  const weekdayIdx = (datum) => {
+    const dt = new Date(datum);
+    return (dt.getDay() + 6) % 7;
+  };
+  const currWeekdays = new Set(current.map(r => weekdayIdx(r.datum)));
+  const prev = prevFull.filter(r => currWeekdays.has(weekdayIdx(r.datum)));
+  const matchedDays = currWeekdays.size;
+
+  const sumCount = (arr) => arr.reduce((s, r) => s + r.count, 0);
+  const sumByZon = (arr) => {
+    const m = { "1": 0, "2": 0, "3": 0 };
+    for (const r of arr) if (m[r.zon] !== undefined) m[r.zon] += r.count;
+    return m;
+  };
+  const sumByKbana = (arr) => {
+    const m = {};
+    for (const r of arr) {
+      // Fallback: derive kbana from location if field is empty (older imports)
+      const kb = r.kbana || classifyLocation(r.locations?.[0]) || "";
+      if (kb) m[kb] = (m[kb] || 0) + r.count;
+    }
+    return m;
+  };
+  const criticalCount = (arr) => arr.filter(r => r.minForeAvgang !== null && r.minForeAvgang !== undefined && !r.nastaDag && r.minForeAvgang < 30).reduce((s,r) => s + r.count, 0);
+
+  const currTotal = sumCount(current);
+  const prevTotal = sumCount(prev);
+  const diffPct = prevTotal > 0 ? Math.round(((currTotal - prevTotal) / prevTotal) * 100) : null;
+
+  const cost = loadCost();
+  const time = loadTime();
+  const currKostnad = currTotal * cost;
+  const prevKostnad = prevTotal * cost;
+  const currTimmar = currTotal * time;
+
+  const currKbana = sumByKbana(current);
+  const prevKbana = sumByKbana(prev);
+  const allKbanas = [...new Set([...Object.keys(currKbana), ...Object.keys(prevKbana)])];
+  const kbanaChanges = allKbanas.map(k => ({
+    k, curr: currKbana[k] || 0, prev: prevKbana[k] || 0,
+    diff: (currKbana[k] || 0) - (prevKbana[k] || 0),
+  }));
+  const improved = [...kbanaChanges].filter(c => c.diff < 0).sort((a,b) => a.diff - b.diff).slice(0, 3);
+  const worsened = [...kbanaChanges].filter(c => c.diff > 0).sort((a,b) => b.diff - a.diff).slice(0, 3);
+
+  const rader = loadRader();
+  const goal = loadGoal();
+  const sumRader = (arr) => {
+    let t = 0;
+    const days = [...new Set(arr.map(r => r.datum))];
+    for (const d of days) if (rader[d]) t += (rader[d]["1"] || 0) + (rader[d]["2"] || 0) + (rader[d]["3"] || 0);
+    return t;
+  };
+  const currRader = sumRader(current);
+  const currPromille = currRader > 0 ? (currTotal / currRader * 1000) : null;
+  const daysInWeek = [...new Set(current.map(r => r.datum))];
+  const daysUnderGoal = daysInWeek.filter(d => {
+    const dayRecs = current.filter(r => r.datum === d);
+    const dayTotal = sumCount(dayRecs);
+    const dayRader = rader[d] ? (rader[d]["1"] || 0) + (rader[d]["2"] || 0) + (rader[d]["3"] || 0) : 0;
+    if (dayRader === 0) return null;
+    return (dayTotal / dayRader * 1000) <= goal;
+  }).length;
+  const daysWithRader = daysInWeek.filter(d => rader[d]).length;
+
+  const card = {
+    background: "#13131c",
+    border: "1px solid #1e1e2e",
+    borderRadius: 10,
+    padding: 20,
+  };
+
+  const weekLabel = (key) => {
+    const start = new Date(key);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    const d = new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `v.${weekNo} (${fmtDate(start)} – ${fmtDate(end)})`;
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+        <button onClick={() => setWeekIdx(Math.min(sortedWeekKeys.length - 1, weekIdx + 1))}
+          disabled={weekIdx >= sortedWeekKeys.length - 1}
+          style={{ background: "#1e1e2e", color: "#888", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>← Tidigare</button>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#f0f0f5", minWidth: 240, textAlign: "center" }}>{weekLabel(currentKey)}</div>
+        <button onClick={() => setWeekIdx(Math.max(0, weekIdx - 1))}
+          disabled={weekIdx === 0}
+          style={{ background: "#1e1e2e", color: "#888", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Senare →</button>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "#555" }}>{daysInWeek.length} dagar med data</span>
+      </div>
+
+      <div style={{ ...card, marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Jämfört med föregående vecka</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 16 }}>
+          <div style={{ fontSize: 36, fontWeight: 800, color: "#f0f0f5", fontFamily: "monospace" }}>{currTotal}</div>
+          <div style={{ fontSize: 14, color: "#888" }}>avvikelser totalt</div>
+          {diffPct !== null && (
+            <div style={{
+              marginLeft: "auto", fontSize: 22, fontWeight: 800, fontFamily: "monospace",
+              color: diffPct > 0 ? "#f87171" : diffPct < 0 ? "#4ade80" : "#888",
+            }}>
+              {diffPct > 0 ? "↑" : diffPct < 0 ? "↓" : "→"} {Math.abs(diffPct)}%
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: "#555", marginTop: 8 }}>
+          Förra veckan: {prevTotal} avvikelser ({prevKey ? weekLabel(prevKey) : "ingen data"})
+          {prevKey && matchedDays < 7 && (
+            <span style={{ color: "#fbbf24", marginLeft: 8 }}>
+              · matchat mot {matchedDays} {matchedDays === 1 ? "dag" : "dagar"} (samma veckodagar)
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
+        <div style={card}>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#f87171", fontFamily: "monospace" }}>{criticalCount(current)}</div>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>{"< 30 min före avg"}</div>
+        </div>
+        <div style={card}>
+          <div style={{ fontSize: 24, fontWeight: 800, color: currPromille && currPromille > goal ? "#f87171" : "#4ade80", fontFamily: "monospace" }}>
+            {currPromille !== null ? currPromille.toFixed(2) + "‰" : "—"}
+          </div>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>Avvikelsegrad</div>
+        </div>
+        <div style={card}>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#60a5fa", fontFamily: "monospace" }}>
+            {daysWithRader > 0 ? `${daysUnderGoal}/${daysWithRader}` : "—"}
+          </div>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>Dagar under mål</div>
+        </div>
+        <div style={card}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#fbbf24", fontFamily: "monospace" }}>{fmtKr(currKostnad)}</div>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+            Kostnad
+            {prevTotal > 0 && (
+              <span style={{ color: currKostnad > prevKostnad ? "#f87171" : "#4ade80", marginLeft: 6 }}>
+                ({currKostnad > prevKostnad ? "+" : ""}{fmtKr(currKostnad - prevKostnad)})
+              </span>
+            )}
+          </div>
+        </div>
+        <div style={card}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#f97316", fontFamily: "monospace" }}>{fmtTimmar(currTimmar)}</div>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>Nedlagd tid</div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+        <div style={card}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>↓ Topp 3 förbättrade K-banor</div>
+          {improved.length === 0 ? <div style={{ color: "#444", fontSize: 12 }}>Inga förbättringar</div> :
+            improved.map(c => (
+              <div key={c.k} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1a1a28", fontSize: 12 }}>
+                <span style={{ color: "#f97316", fontFamily: "monospace", fontWeight: 700 }}>{c.k}</span>
+                <span style={{ color: "#888" }}>{c.prev} → {c.curr}</span>
+                <span style={{ color: "#4ade80", fontFamily: "monospace", fontWeight: 700 }}>{c.diff}</span>
+              </div>
+            ))}
+        </div>
+        <div style={card}>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>↑ Topp 3 försämrade K-banor</div>
+          {worsened.length === 0 ? <div style={{ color: "#444", fontSize: 12 }}>Inga försämringar</div> :
+            worsened.map(c => (
+              <div key={c.k} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1a1a28", fontSize: 12 }}>
+                <span style={{ color: "#f97316", fontFamily: "monospace", fontWeight: 700 }}>{c.k}</span>
+                <span style={{ color: "#888" }}>{c.prev} → {c.curr}</span>
+                <span style={{ color: "#f87171", fontFamily: "monospace", fontWeight: 700 }}>+{c.diff}</span>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Per zon (denna vecka vs förra)</div>
+        {["1","2","3"].map(z => {
+          const c = sumByZon(current)[z] || 0;
+          const p = sumByZon(prev)[z] || 0;
+          const diff = c - p;
+          return (
+            <div key={z} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1a1a28", fontSize: 13 }}>
+              <span style={{ color: "#f0f0f5" }}>Zon {z}</span>
+              <span style={{ color: "#888", fontFamily: "monospace" }}>{p} → {c}</span>
+              <span style={{ color: diff > 0 ? "#f87171" : diff < 0 ? "#4ade80" : "#888", fontFamily: "monospace", fontWeight: 700, minWidth: 50, textAlign: "right" }}>
+                {diff > 0 ? `+${diff}` : diff}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+
+function AvvikelseLive() {
+  const [tab, setTab] = useState("import");
+  const [data, setData] = useState([]);
+
+  useEffect(() => {
+    setData(loadData());
+  }, []);
+
+  // Lagringsvarning: localStorage-taket är ~5 MB. Varna i god tid (vid 3 MB).
+  const storageMB = getStorageBytes() / (1024 * 1024);
+  const storageWarn = storageMB >= 3;
+
+  const handleSave = useCallback(async (records, datum) => {
+    setData(prev => {
+      const existingForDay = prev.filter(r => r.datum === datum);
+      const existingByVNR = new Map(existingForDay.map(r => [r.vnr, r]));
+      const otherDays = prev.filter(r => r.datum !== datum);
+      const merged = records.map(r => {
+        const old = existingByVNR.get(r.vnr);
+        if (old) {
+          return {
+            ...r,
+            orsak: r.orsak && r.orsak !== "Okänd" ? r.orsak : (old.orsak || r.orsak),
+            kommentar: r.kommentar || old.kommentar,
+          };
+        }
+        return r;
+      });
+      const next = [...otherDays, ...merged];
+      saveData(next);
+      return next;
+    });
+  }, []);
+
+  const handleUpdate = useCallback((datum, vnr, orsak, kommentar) => {
+    setData(prev => {
+      const next = prev.map(r =>
+        r.datum === datum && r.vnr === vnr ? { ...r, orsak, kommentar } : r
+      );
+      saveData(next);
+      return next;
+    });
+  }, []);
+
+  // Sparar per-scan-orsaker (events) och sätter VNR-dagens huvudorsak till den dominanta.
+  // Auto-detekteringen påverkas inte — detta är manuell finjustering i efterhand.
+  const handleUpdateEvents = useCallback((datum, vnr, events, dominant) => {
+    setData(prev => {
+      const next = prev.map(r =>
+        r.datum === datum && r.vnr === vnr
+          ? { ...r, events, orsak: dominant || r.orsak }
+          : r
+      );
+      saveData(next);
+      return next;
+    });
+  }, []);
+
+  const handleMove = useCallback((fromDatum, toDatum, onlyWithRoute = false) => {
+    if (fromDatum === toDatum) return;
+    setData(prev => {
+      const toMove = prev.filter(r => r.datum === fromDatum && (!onlyWithRoute || r.routeCode));
+      const stays = prev.filter(r => !(r.datum === fromDatum && (!onlyWithRoute || r.routeCode)));
+      const moved = toMove.map(r => ({ ...r, datum: toDatum }));
+      const movedVNRs = new Set(moved.map(r => r.vnr));
+      const cleaned = stays.filter(r => !(r.datum === toDatum && movedVNRs.has(r.vnr)));
+      const next = [...cleaned, ...moved];
+      saveData(next);
+      return next;
+    });
+  }, []);
+
+  const handleDelete = useCallback((datum) => {
+    setData(prev => {
+      const next = prev.filter(r => r.datum !== datum);
+      saveData(next);
+      return next;
+    });
+  }, []);
+
+  const tabs = [
+    { id: "import", label: "📥 Importera" },
+    { id: "historik", label: "📋 Historik" },
+    { id: "statistik", label: "📊 Statistik" },
+    { id: "vecka", label: "📅 Vecka" },
+    { id: "analys", label: "🔍 Analys" },
+  ];
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "#0a0a0f",
+      color: "#f0f0f5",
+      fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+    }}>
+      <div style={{
+        borderBottom: "1px solid #1e1e2e",
+        padding: "20px 32px 0",
+        background: "#0d0d15",
+      }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
+          <h1 style={{
+            margin: 0,
+            fontSize: 20,
+            fontWeight: 800,
+            letterSpacing: -0.5,
+            color: "#f0f0f5",
+          }}>
+            Avvikelse<span style={{ color: "#7c6af7" }}>Live</span>
+          </h1>
+          <span style={{ fontSize: 11, color: "#444", letterSpacing: 1 }}>SDS · DEV 92</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "#444" }}>
+            {data.length} poster · {[...new Set(data.map(r=>r.datum))].length} dagar
+          </span>
+        </div>
+
+        <div style={{ display: "flex", gap: 0 }}>
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                background: "none",
+                border: "none",
+                borderBottom: `2px solid ${tab === t.id ? "#7c6af7" : "transparent"}`,
+                color: tab === t.id ? "#f0f0f5" : "#555",
+                padding: "10px 20px",
+                cursor: "pointer",
+                fontSize: 13,
+                fontFamily: "inherit",
+                fontWeight: tab === t.id ? 700 : 400,
+                letterSpacing: 0.3,
+                transition: "all .15s",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {storageWarn && (
+        <div style={{
+          background: "#2a1500",
+          borderBottom: "1px solid #7a5a00",
+          padding: "8px 32px",
+          fontSize: 12,
+          color: "#f0c040",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+        }}>
+          ⚠ Lagringsutrymmet börjar bli fullt ({storageMB.toFixed(1)} MB av ~5 MB).
+          Exportera till Excel som backup (Statistik → Exportera) och överväg att ta bort gamla datum i Historik.
+        </div>
+      )}
+
+      <div style={{ padding: "24px 32px", maxWidth: 1100, margin: "0 auto" }}>
+        {tab === "import" && <ImportTab onSave={handleSave} existingData={data} />}
+        {tab === "historik" && <HistorikTab data={data} onDelete={handleDelete} onUpdate={handleUpdate} onUpdateEvents={handleUpdateEvents} onMove={handleMove} />}
+        {tab === "statistik" && <StatistikTab data={data} />}
+        {tab === "analys" && <AnalysTab data={data} />}
+        {tab === "vecka" && <VeckaTab data={data} />}
+      </div>
+    </div>
+  );
+}
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<AvvikelseLive />);
+  </script>
+</body>
+</html>
