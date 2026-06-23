@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./lib/supabase.js";
-import { HistorikTab } from "./components/HistorikTab.jsx";
-import { ImportTab }  from "./components/ImportTab.jsx";
+import { HistorikTab }  from "./components/HistorikTab.jsx";
+import { ImportTab }   from "./components/ImportTab.jsx";
+import { StatistikTab } from "./components/StatistikTab.jsx";
+import { VeckaTab }    from "./components/VeckaTab.jsx";
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -94,9 +96,11 @@ function Shell({ session }) {
       <main style={styles.main}>
         {tab === "Importera" && <ImportTab />}
         {tab === "Historik"  && <HistorikTab />}
-        {tab !== "Importera" && tab !== "Historik" && (
+        {tab === "Statistik" && <StatistikTab />}
+        {tab === "Vecka"     && <VeckaTab />}
+        {tab === "Analys" && (
           <p style={{ color: "#555", textAlign: "center", paddingTop: 60, fontSize: 14 }}>
-            <em>{tab}</em> byggs snart.
+            <em>Analys</em> byggs snart.
           </p>
         )}
       </main>
