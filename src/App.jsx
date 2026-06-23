@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./lib/supabase.js";
 import { HistorikTab } from "./components/HistorikTab.jsx";
+import { ImportTab }  from "./components/ImportTab.jsx";
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -91,8 +92,9 @@ function Shell({ session }) {
         <button style={styles.link} onClick={handleLogout}>Logga ut</button>
       </header>
       <main style={styles.main}>
-        {tab === "Historik" && <HistorikTab />}
-        {tab !== "Historik" && (
+        {tab === "Importera" && <ImportTab />}
+        {tab === "Historik"  && <HistorikTab />}
+        {tab !== "Importera" && tab !== "Historik" && (
           <p style={{ color: "#555", textAlign: "center", paddingTop: 60, fontSize: 14 }}>
             <em>{tab}</em> byggs snart.
           </p>
