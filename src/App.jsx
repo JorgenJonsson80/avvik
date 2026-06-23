@@ -4,6 +4,7 @@ import { HistorikTab }  from "./components/HistorikTab.jsx";
 import { ImportTab }   from "./components/ImportTab.jsx";
 import { StatistikTab } from "./components/StatistikTab.jsx";
 import { VeckaTab }    from "./components/VeckaTab.jsx";
+import { AnalysTab }   from "./components/AnalysTab.jsx";
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -98,11 +99,7 @@ function Shell({ session }) {
         {tab === "Historik"  && <HistorikTab />}
         {tab === "Statistik" && <StatistikTab />}
         {tab === "Vecka"     && <VeckaTab />}
-        {tab === "Analys" && (
-          <p style={{ color: "#555", textAlign: "center", paddingTop: 60, fontSize: 14 }}>
-            <em>Analys</em> byggs snart.
-          </p>
-        )}
+        {tab === "Analys"    && <AnalysTab />}
       </main>
     </div>
   );
