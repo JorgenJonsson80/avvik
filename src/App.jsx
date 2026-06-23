@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./lib/supabase.js";
+import { HistorikTab } from "./components/HistorikTab.jsx";
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -90,11 +91,12 @@ function Shell({ session }) {
         <button style={styles.link} onClick={handleLogout}>Logga ut</button>
       </header>
       <main style={styles.main}>
-        <p style={{ color: "#888", textAlign: "center", paddingTop: 60 }}>
-          Inloggad som <strong>{session.user.email}</strong>.
-          <br />
-          Tab <em>{tab}</em> byggs snart.
-        </p>
+        {tab === "Historik" && <HistorikTab />}
+        {tab !== "Historik" && (
+          <p style={{ color: "#555", textAlign: "center", paddingTop: 60, fontSize: 14 }}>
+            <em>{tab}</em> byggs snart.
+          </p>
+        )}
       </main>
     </div>
   );
@@ -124,11 +126,11 @@ const styles = {
   btn: { padding: "10px", fontSize: 15, background: "#1a73e8", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 600 },
   link: { background: "none", border: "none", color: "#1a73e8", cursor: "pointer", fontSize: 13, marginTop: 10, padding: 0 },
   msg: { marginTop: 10, fontSize: 13, color: "#c00" },
-  shell: { display: "flex", flexDirection: "column", minHeight: "100vh", fontFamily: "system-ui, sans-serif" },
-  header: { display: "flex", alignItems: "center", gap: 16, padding: "0 20px", background: "#1a73e8", color: "#fff", height: 52 },
-  appName: { fontWeight: 700, fontSize: 17, marginRight: 8 },
+  shell: { display: "flex", flexDirection: "column", minHeight: "100vh", fontFamily: "system-ui, sans-serif", background: "#0a0a0f" },
+  header: { display: "flex", alignItems: "center", gap: 16, padding: "0 20px", background: "#0f0f18", borderBottom: "1px solid #1e1e2e", color: "#f0f0f5", height: 52 },
+  appName: { fontWeight: 700, fontSize: 17, marginRight: 8, color: "#7c6af7" },
   nav: { display: "flex", gap: 4, flex: 1 },
-  tabBtn: { background: "none", border: "none", color: "rgba(255,255,255,0.8)", cursor: "pointer", padding: "6px 12px", borderRadius: 4, fontSize: 14 },
-  tabActive: { background: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 600 },
-  main: { flex: 1, padding: 20 },
+  tabBtn: { background: "none", border: "none", color: "#666", cursor: "pointer", padding: "6px 12px", borderRadius: 4, fontSize: 14, fontFamily: "inherit" },
+  tabActive: { background: "#16162a", color: "#7c6af7", fontWeight: 600, border: "1px solid #2a2a3a" },
+  main: { flex: 1 },
 };
