@@ -7,20 +7,33 @@ import { VeckaTab }    from "./components/VeckaTab.jsx";
 import { AnalysTab }   from "./components/AnalysTab.jsx";
 
 function Login() {
-  const [email, setEmail] = useState("");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState("login"); // "login" | "magic"
-  const [msg, setMsg] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [confirm, setConfirm]   = useState("");
+  const [mode, setMode]         = useState("login"); // "login" | "signup" | "magic"
+  const [msg, setMsg]           = useState("");
+  const [msgOk, setMsgOk]       = useState(false);
+  const [loading, setLoading]   = useState(false);
 
-  async function handleLogin(e) {
+  function switchMode(m) { setMode(m); setMsg(""); setMsgOk(false); }
+
+  async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
-    setMsg("");
+    setMsg(""); setMsgOk(false);
+
     if (mode === "magic") {
       const { error } = await supabase.auth.signInWithOtp({ email });
       if (error) setMsg("Fel: " + error.message);
-      else setMsg("Kolla din e-post för inloggningslänken.");
+      else { setMsg("Kolla din e-post för inloggningslänken."); setMsgOk(true); }
+
+    } else if (mode === "signup") {
+      if (password !== confirm) { setMsg("Lösenorden matchar inte."); setLoading(false); return; }
+      if (password.length < 6)  { setMsg("Lösenordet måste vara minst 6 tecken."); setLoading(false); return; }
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) setMsg("Fel: " + error.message);
+      else { setMsg("Konto skapat! Kolla din e-post för att bekräfta, sedan kan du logga in."); setMsgOk(true); }
+
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setMsg("Fel: " + error.message);
@@ -28,41 +41,35 @@ function Login() {
     setLoading(false);
   }
 
+  const btnLabel = loading ? "Väntar…"
+    : mode === "magic"  ? "Skicka magisk länk"
+    : mode === "signup" ? "Skapa konto"
+    : "Logga in";
+
   return (
     <div style={styles.center}>
       <div style={styles.card}>
         <h1 style={styles.title}>AvvikelseLive</h1>
-        <p style={styles.sub}>Logga in för att fortsätta</p>
-        <form onSubmit={handleLogin} style={styles.form}>
-          <input
-            style={styles.input}
-            type="email"
-            placeholder="E-postadress"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          {mode === "login" && (
-            <input
-              style={styles.input}
-              type="password"
-              placeholder="Lösenord"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+        <p style={styles.sub}>{mode === "signup" ? "Skapa nytt konto" : "Logga in för att fortsätta"}</p>
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <input style={styles.input} type="email" placeholder="E-postadress"
+            value={email} onChange={(e) => setEmail(e.target.value)} required />
+          {(mode === "login" || mode === "signup") && (
+            <input style={styles.input} type="password" placeholder="Lösenord"
+              value={password} onChange={(e) => setPassword(e.target.value)} required />
           )}
-          <button style={styles.btn} type="submit" disabled={loading}>
-            {loading ? "Loggar in…" : mode === "magic" ? "Skicka magisk länk" : "Logga in"}
-          </button>
+          {mode === "signup" && (
+            <input style={styles.input} type="password" placeholder="Bekräfta lösenord"
+              value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+          )}
+          <button style={styles.btn} type="submit" disabled={loading}>{btnLabel}</button>
         </form>
-        <button
-          style={styles.link}
-          onClick={() => { setMode(mode === "login" ? "magic" : "login"); setMsg(""); }}
-        >
-          {mode === "login" ? "Använd magisk länk istället" : "Använd lösenord istället"}
-        </button>
-        {msg && <p style={styles.msg}>{msg}</p>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10 }}>
+          {mode !== "login"  && <button style={styles.link} onClick={() => switchMode("login")}>Logga in med lösenord</button>}
+          {mode !== "signup" && <button style={styles.link} onClick={() => switchMode("signup")}>Skapa nytt konto</button>}
+          {mode !== "magic"  && <button style={styles.link} onClick={() => switchMode("magic")}>Skicka magisk länk</button>}
+        </div>
+        {msg && <p style={{ ...styles.msg, color: msgOk ? "#166534" : "#c00" }}>{msg}</p>}
       </div>
     </div>
   );
@@ -71,10 +78,21 @@ function Login() {
 const TABS = ["Importera", "Historik", "Statistik", "Vecka", "Analys"];
 
 function Shell({ session }) {
-  const [tab, setTab] = useState("Historik");
+  const [tab, setTab]           = useState("Historik");
+  const [clearing, setClearing] = useState(false);
 
   async function handleLogout() {
     await supabase.auth.signOut();
+  }
+
+  async function handleClearData() {
+    if (!window.confirm("Rensa ALL data? Avvikelser, scanningar och rader tas bort permanent.")) return;
+    if (!window.confirm("Är du säker? Det går inte att ångra.")) return;
+    setClearing(true);
+    await supabase.from("deviations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    await supabase.from("rader").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    setClearing(false);
+    window.location.reload();
   }
 
   return (
@@ -92,6 +110,10 @@ function Shell({ session }) {
             </button>
           ))}
         </nav>
+        <button style={{ ...styles.link, color: "#555", fontSize: 12, marginRight: 8 }}
+          onClick={handleClearData} disabled={clearing}>
+          {clearing ? "Rensar…" : "Rensa data"}
+        </button>
         <button style={styles.link} onClick={handleLogout}>Logga ut</button>
       </header>
       <main style={styles.main}>
