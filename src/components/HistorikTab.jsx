@@ -1,9 +1,32 @@
 import { useState, useMemo } from "react";
+import * as XLSX from "xlsx";
 import { useDeviations } from "../hooks/useDeviations.js";
 import { ScanDetailModal } from "./shared/ScanDetailModal.jsx";
 import { OrsaksSelect } from "./shared/OrsaksSelect.jsx";
 import { ORSAKER, ORSAK_ANSVAR } from "../lib/causes.js";
 import { formatMinBefore } from "../lib/routes.js";
+
+function exportToExcel(rows) {
+  const data = rows.map((r) => ({
+    Datum:              r.datum,
+    VNR:                r.vnr,
+    Lagerplats:         (r.locations || []).join(", "),
+    Zon:                r.zon || "",
+    "K-bana":           r.kbana || "",
+    Tur:                r.route_code || "",
+    Avgångstid:         r.avgangstid || "",
+    "Min före avg":     r.min_fore_avgang ?? "",
+    "Nästa dag":        r.nasta_dag ? "Ja" : "Nej",
+    Antal:              r.count,
+    Orsak:              r.orsak || "",
+    Kommentar:          r.kommentar || "",
+    "Kontroll-scannar": r.kontroll_scans || 0,
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Avvikelser");
+  XLSX.writeFile(wb, `avvikelser_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
 
 export function HistorikTab() {
   const { deviations, loading, error, updateOrsak, updateKommentar } = useDeviations();
@@ -94,6 +117,13 @@ export function HistorikTab() {
           {ORSAKER.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
         <span style={s.count}>{filtered.length} poster</span>
+        <button
+          onClick={() => exportToExcel(filtered)}
+          disabled={filtered.length === 0}
+          style={{ ...s.filterSelect, background: "#1a1a2e", color: filtered.length > 0 ? "#7c6af7" : "#333", border: "1px solid #2a2a4a", cursor: filtered.length > 0 ? "pointer" : "default", fontWeight: 600 }}
+        >
+          Exportera Excel
+        </button>
       </div>
 
       {/* Tom-state */}
