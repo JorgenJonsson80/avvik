@@ -10,7 +10,7 @@ import * as XLSX from "xlsx";
 import { excelDateToISO } from "./dates.js";
 import { classifyLocation, getZon, stationToZon } from "./classify.js";
 import { getAvgangstid, minutesBeforeDeparture } from "./routes.js";
-import { markKontrollScans, kontrollStatsByVnr } from "./kontroll.js";
+import { markKontrollScans, kontrollStatsByVnr, kontrollArea, scanOrsak } from "./kontroll.js";
 
 // ─── Tidstolkning ────────────────────────────────────────────────────────────
 
@@ -169,7 +169,7 @@ export function parseX08(workbook) {
     for (const ev of e.events) {
       if (!ev.tid) continue;
       const [hh, mm] = ev.tid.split(":").map(Number);
-      allScans.push({ vnr, locPrefix: ev.location.slice(0, 2).toUpperCase(), timeMs: hh * 3_600_000 + mm * 60_000 });
+      allScans.push({ vnr, area: kontrollArea(ev.location), timeMs: hh * 3_600_000 + mm * 60_000 });
     }
   }
   const marked    = markKontrollScans(allScans);
@@ -203,10 +203,21 @@ export function parseX08(workbook) {
       e.beforeWork === e.count ? "Före 08:00" :
       e.afterHours === e.count ? "Utanför min arbetstid" : "";
 
-    // Sätt in_kontroll per event och default orsak = VNR-dagens orsak (ALDRIG från inKontroll)
+    // Per-scan orsak: tid (Före 08/Utanför arbetstid) > kontroll > autoOrsak
     for (const ev of e.events) {
       ev.in_kontroll = kontrollKey.get(`${vnr}|${ev.tid}`) === true;
-      ev.orsak       = autoOrsak || ""; // default till VNR-dagens orsak, sätts vidare vid merge
+      let h = null, m = 0;
+      if (ev.tid) { const p = ev.tid.split(":").map(Number); h = p[0]; m = p[1]; }
+      ev.orsak = scanOrsak(h, m, ev.in_kontroll, autoOrsak);
+    }
+
+    // Dagsorsak: autoOrsak om satt, annars dominant scan-orsak
+    let dagOrsak = autoOrsak;
+    if (!dagOrsak) {
+      const c = {};
+      for (const ev of e.events) if (ev.orsak) c[ev.orsak] = (c[ev.orsak] || 0) + 1;
+      const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+      if (top) dagOrsak = top[0];
     }
 
     records.push({
@@ -228,7 +239,7 @@ export function parseX08(workbook) {
       hours:           e.hours,
       times:           sortedTimes,
       first_time:      firstTime,
-      orsak:           autoOrsak,
+      orsak:           dagOrsak,
       kommentar:       "",
       kontroll_scans:  st ? st.kontroll : 0,
       kontroll_total:  st ? st.total    : 0,
@@ -307,33 +318,48 @@ export async function readRaderFile(file) {
  * Returnerar { records, error }.
  */
 export function parseBackupFile(workbook) {
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows  = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  // Exportfilen har flera flikar — datan ligger i "Rådata", inte första fliken
+  const findSheet = (...names) => {
+    for (const n of names) {
+      const match = workbook.SheetNames.find(
+        (s) => s.toLowerCase().replace(/\s+/g, "") === n.toLowerCase().replace(/\s+/g, "")
+      );
+      if (match) return workbook.Sheets[match];
+    }
+    return null;
+  };
+  const sheet =
+    findSheet("Rådata", "Radata") ||
+    findSheet("Per avvikelse", "Peravvikelse") ||
+    workbook.Sheets[workbook.SheetNames[0]];
 
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
   if (rows.length === 0) return { records: [], error: "Filen verkar tom." };
 
-  // Kontrollera att det ser ut som en AvvikelseLive-export
   const first = rows[0];
-  if (!("VNR" in first) || !("Datum" in first) || !("Antal" in first)) {
-    return { records: [], error: "Filen verkar inte vara en AvvikelseLive-export (saknar kolumnerna Datum, VNR, Antal)." };
+  if (!("VNR" in first) || !("Datum" in first)) {
+    return { records: [], error: "Filen verkar inte vara en AvvikelseLive-export (hittade ingen Rådata-flik med Datum + VNR)." };
   }
+
+  // "Zon"-kolumnen kan komma in som "Zon 2" — strippa prefixet
+  const cleanZon = (v) => String(v ?? "").trim().replace(/^Zon\s+/i, "") || null;
 
   const records = rows
     .filter((r) => r["VNR"] && r["Datum"])
     .map((r) => ({
-      datum:           String(r["Datum"]).trim(),
+      datum:           String(r["Datum"]).trim().slice(0, 10),
       vnr:             String(r["VNR"]).trim(),
       locations:       r["Lagerplats"] ? String(r["Lagerplats"]).split(", ").map((s) => s.trim()).filter(Boolean) : [],
-      zon:             String(r["Zon"] ?? "").trim() || null,
+      zon:             cleanZon(r["Zon"]),
       kbana:           String(r["K-bana"] ?? "").trim() || "",
       route_code:      String(r["Tur"] ?? "").trim() || "",
       avgangstid:      String(r["Avgångstid"] ?? "").trim() || "",
       min_fore_avgang: r["Min före avg"] !== "" && r["Min före avg"] !== null ? parseInt(r["Min före avg"], 10) || null : null,
-      nasta_dag:       String(r["Nästa dag"] ?? "").trim().toLowerCase() === "ja",
+      nasta_dag:       String(r["Avgångstid"] ?? "").toLowerCase().includes("nästa dag"),
       count:           parseInt(r["Antal"], 10) || 1,
       orsak:           String(r["Orsak"] ?? "").trim() || "",
       kommentar:       String(r["Kommentar"] ?? "").trim() || "",
-      kontroll_scans:  parseInt(r["Kontroll-scannar"] ?? 0, 10) || 0,
+      kontroll_scans:  0,
       kontroll_total:  0,
       after_hours:     0,
       before_work:     0,

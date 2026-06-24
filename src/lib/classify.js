@@ -55,7 +55,9 @@ export function classifyLocation(loc) {
 }
 
 /**
- * Härleder zon (1/2/3) från lagerplatsens prefix. "?" om okänd.
+ * Härleder zon från lagerplatsens prefix.
+ * Numeriska zoner (1/2/3) har rader-data → promille.
+ * Loax (PH) och KG kyl (P5/PC/PK) är egna zoner utan rader-underlag.
  */
 export function getZon(location) {
   if (!location) return "?";
@@ -63,8 +65,20 @@ export function getZon(location) {
   if (l.startsWith("P1")) return "1";
   if (l.startsWith("P3") || l.startsWith("PD")) return "3";
   if (l.startsWith("P4") || l.startsWith("P6") || l.startsWith("P7")) return "2";
+  if (l.startsWith("PH")) return "Loax";
+  if (l.startsWith("P5") || l.startsWith("PC") || l.startsWith("PK")) return "KG kyl";
   return "?";
 }
+
+export const ALLA_ZONER = ["1", "2", "3", "Loax", "KG kyl"];
+export const ZON_COLORS = {
+  "1": "#4ade80",
+  "2": "#60a5fa",
+  "3": "#f97316",
+  "Loax": "#a78bfa",
+  "KG kyl": "#22d3ee",
+  "?": "#6b7280",
+};
 
 /**
  * Härleder zon från stationsnummer (används vid rader-import).
