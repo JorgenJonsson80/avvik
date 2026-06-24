@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useDeviations } from "../hooks/useDeviations.js";
 import { useRader } from "../hooks/useRader.js";
 import { supabase } from "../lib/supabase.js";
-import { readX08File, readRaderFile, mergeDeviations } from "../lib/importParser.js";
+import { readX08File, readRaderFile, readBackupFile, mergeDeviations } from "../lib/importParser.js";
 import { OrsaksSelect } from "./shared/OrsaksSelect.jsx";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
 import { formatMinBefore } from "../lib/routes.js";
@@ -13,14 +13,16 @@ export function ImportTab() {
   const { deviations, refetch } = useDeviations();
   const { upsertRader }         = useRader();
 
-  const [groups,      setGroups]      = useState([]);
-  const [importing,   setImporting]   = useState(false);
-  const [datum,       setDatum]       = useState("");
-  const [saved,       setSaved]       = useState(false);
-  const [mergeInfo,   setMergeInfo]   = useState(null);
-  const [raderInfo,   setRaderInfo]   = useState(null);
-  const [saveError,   setSaveError]   = useState(null);
-  const [saving,      setSaving]      = useState(false);
+  const [groups,        setGroups]        = useState([]);
+  const [importing,     setImporting]     = useState(false);
+  const [datum,         setDatum]         = useState("");
+  const [saved,         setSaved]         = useState(false);
+  const [mergeInfo,     setMergeInfo]     = useState(null);
+  const [raderInfo,     setRaderInfo]     = useState(null);
+  const [saveError,     setSaveError]     = useState(null);
+  const [saving,        setSaving]        = useState(false);
+  const [backupStatus,  setBackupStatus]  = useState(null); // { ok, msg }
+  const [backupLoading, setBackupLoading] = useState(false);
 
   // Inline orsak/kommentar-state för nya poster (id = vnr, eftersom datum är fixerat)
   const [localOrsak,      setLocalOrsak]      = useState({});
@@ -135,6 +137,62 @@ export function ImportTab() {
       setSaveError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleBackup(e, mode) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+
+    if (mode === "återställ") {
+      if (!window.confirm(`Återställ från backup? ALL befintlig data (avvikelser, scanningar) raderas och ersätts med filens innehåll.`)) return;
+    }
+
+    setBackupLoading(true);
+    setBackupStatus(null);
+    try {
+      const { records, error } = await readBackupFile(file);
+      if (error) { setBackupStatus({ ok: false, msg: error }); return; }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const uid = user.id;
+
+      if (mode === "återställ") {
+        // Radera all befintlig data (scans kaskaderas via FK)
+        await supabase.from("deviations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+        // Sätt in alla poster direkt
+        const rows = records.map((r) => ({ ...r, user_id: uid }));
+        const { error: insErr } = await supabase.from("deviations").insert(rows);
+        if (insErr) throw new Error(insErr.message);
+        setBackupStatus({ ok: true, msg: `Återställt ${records.length} poster från backup.` });
+      } else {
+        // "lägg till" — upsert med merge: bevara befintlig orsak om meningsfull
+        const existing = deviations;
+        const byKey    = new Map(existing.map((r) => [`${r.datum}|${r.vnr}`, r]));
+        const rows = records.map((r) => {
+          const prev = byKey.get(`${r.datum}|${r.vnr}`);
+          const keepOrsak = prev?.orsak && prev.orsak !== "Okänd";
+          return {
+            ...r,
+            user_id:   uid,
+            orsak:     keepOrsak ? prev.orsak     : (r.orsak || ""),
+            kommentar: prev?.kommentar            || r.kommentar || "",
+          };
+        });
+        const { error: upsErr } = await supabase
+          .from("deviations")
+          .upsert(rows, { onConflict: "user_id,datum,vnr" });
+        if (upsErr) throw new Error(upsErr.message);
+        const nytt = records.filter((r) => !byKey.has(`${r.datum}|${r.vnr}`)).length;
+        const upd  = records.length - nytt;
+        setBackupStatus({ ok: true, msg: `Lade till ${nytt} nya poster, uppdaterade ${upd} befintliga.` });
+      }
+      await refetch();
+    } catch (err) {
+      setBackupStatus({ ok: false, msg: err.message });
+    } finally {
+      setBackupLoading(false);
     }
   }
 
@@ -306,6 +364,29 @@ export function ImportTab() {
           ✓ Sparat! Öppna Historik-fliken för att se och redigera avvikelserna.
         </div>
       )}
+
+      {/* ── Backup-import ─────────────────────────────────────── */}
+      <div style={s.backupSection}>
+        <div style={s.sectionHeader}>Importera från backup-Excel</div>
+        <div style={{ fontSize: 12, color: "#555", marginBottom: 10 }}>
+          Ladda en fil som exporterats från Historik → Exportera Excel.
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <label style={{ ...s.btn, background: "#0d1a0d", color: "#4ade80", border: "1px solid #1a3a1a", opacity: backupLoading ? 0.5 : 1 }}>
+            {backupLoading ? "Läser…" : "Lägg till från backup"}
+            <input type="file" accept=".xlsx,.xls" onChange={(e) => handleBackup(e, "lägg till")} style={{ display: "none" }} disabled={backupLoading} />
+          </label>
+          <label style={{ ...s.btn, background: "#1a0d0d", color: "#f87171", border: "1px solid #3a1515", opacity: backupLoading ? 0.5 : 1 }}>
+            {backupLoading ? "Läser…" : "Återställ från backup"}
+            <input type="file" accept=".xlsx,.xls" onChange={(e) => handleBackup(e, "återställ")} style={{ display: "none" }} disabled={backupLoading} />
+          </label>
+        </div>
+        {backupStatus && (
+          <div style={{ marginTop: 10, fontSize: 13, color: backupStatus.ok ? "#4ade80" : "#f87171" }}>
+            {backupStatus.ok ? "✓ " : "⚠ "}{backupStatus.msg}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -338,6 +419,7 @@ const s = {
   editRow:      { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
   kommentarInput: { flex: 1, minWidth: 160, background: "#0f0f18", border: "1px solid #2a2a3a", color: "#f0f0f5", borderRadius: 6, padding: "5px 10px", fontSize: 12, outline: "none", fontFamily: "inherit" },
   ansvar:       { fontSize: 11, color: "#60a5fa", whiteSpace: "nowrap" },
-  empty:        { textAlign: "center", color: "#555", paddingTop: 60, fontSize: 14 },
-  savedMsg:     { textAlign: "center", color: "#4ade80", paddingTop: 60, fontSize: 15 },
+  empty:         { textAlign: "center", color: "#555", paddingTop: 60, fontSize: 14 },
+  savedMsg:      { textAlign: "center", color: "#4ade80", paddingTop: 60, fontSize: 15 },
+  backupSection: { marginTop: 40, borderTop: "1px solid #1e1e2e", paddingTop: 20 },
 };

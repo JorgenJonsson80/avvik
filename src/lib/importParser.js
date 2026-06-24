@@ -300,6 +300,57 @@ export async function readRaderFile(file) {
   return parseRader(wb);
 }
 
+// ─── Backup-parser (importera från exporterad Excel) ─────────────────────────
+
+/**
+ * Parsar en Excel-fil som exporterats från AvvikelseLive (Historik → Exportera Excel).
+ * Returnerar { records, error }.
+ */
+export function parseBackupFile(workbook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows  = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+  if (rows.length === 0) return { records: [], error: "Filen verkar tom." };
+
+  // Kontrollera att det ser ut som en AvvikelseLive-export
+  const first = rows[0];
+  if (!("VNR" in first) || !("Datum" in first) || !("Antal" in first)) {
+    return { records: [], error: "Filen verkar inte vara en AvvikelseLive-export (saknar kolumnerna Datum, VNR, Antal)." };
+  }
+
+  const records = rows
+    .filter((r) => r["VNR"] && r["Datum"])
+    .map((r) => ({
+      datum:           String(r["Datum"]).trim(),
+      vnr:             String(r["VNR"]).trim(),
+      locations:       r["Lagerplats"] ? String(r["Lagerplats"]).split(", ").map((s) => s.trim()).filter(Boolean) : [],
+      zon:             String(r["Zon"] ?? "").trim() || null,
+      kbana:           String(r["K-bana"] ?? "").trim() || "",
+      route_code:      String(r["Tur"] ?? "").trim() || "",
+      avgangstid:      String(r["Avgångstid"] ?? "").trim() || "",
+      min_fore_avgang: r["Min före avg"] !== "" && r["Min före avg"] !== null ? parseInt(r["Min före avg"], 10) || null : null,
+      nasta_dag:       String(r["Nästa dag"] ?? "").trim().toLowerCase() === "ja",
+      count:           parseInt(r["Antal"], 10) || 1,
+      orsak:           String(r["Orsak"] ?? "").trim() || "",
+      kommentar:       String(r["Kommentar"] ?? "").trim() || "",
+      kontroll_scans:  parseInt(r["Kontroll-scannar"] ?? 0, 10) || 0,
+      kontroll_total:  0,
+      after_hours:     0,
+      before_work:     0,
+      hours:           [],
+      times:           [],
+    }));
+
+  if (records.length === 0) return { records: [], error: "Inga giltiga rader hittades i filen." };
+  return { records, error: null };
+}
+
+export async function readBackupFile(file) {
+  const buf = await file.arrayBuffer();
+  const wb  = XLSX.read(buf, { type: "array" });
+  return parseBackupFile(wb);
+}
+
 // ─── Merge-logik ─────────────────────────────────────────────────────────────
 
 /**
