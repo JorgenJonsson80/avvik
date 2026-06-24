@@ -158,13 +158,23 @@ export function ImportTab() {
       const { data: { user } } = await supabase.auth.getUser();
       const uid = user.id;
 
+      // Supabase API:s rad-limit kräver batchning för stora importer
+      const BATCH = 500;
+      const batchWrite = async (rows, opts) => {
+        for (let i = 0; i < rows.length; i += BATCH) {
+          const chunk = rows.slice(i, i + BATCH);
+          const q = opts?.onConflict
+            ? supabase.from("deviations").upsert(chunk, { onConflict: opts.onConflict })
+            : supabase.from("deviations").insert(chunk);
+          const { error } = await q;
+          if (error) throw new Error(`Batch ${Math.floor(i / BATCH) + 1}: ${error.message}`);
+        }
+      };
+
       if (mode === "återställ") {
-        // Radera all befintlig data (scans kaskaderas via FK)
         await supabase.from("deviations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-        // Sätt in alla poster direkt
         const rows = records.map((r) => ({ ...r, user_id: uid }));
-        const { error: insErr } = await supabase.from("deviations").insert(rows);
-        if (insErr) throw new Error(insErr.message);
+        await batchWrite(rows);
         setBackupStatus({ ok: true, msg: `Återställt ${records.length} poster från backup.` });
       } else {
         // "lägg till" — upsert med merge: bevara befintlig orsak om meningsfull
@@ -176,14 +186,11 @@ export function ImportTab() {
           return {
             ...r,
             user_id:   uid,
-            orsak:     keepOrsak ? prev.orsak     : (r.orsak || ""),
-            kommentar: prev?.kommentar            || r.kommentar || "",
+            orsak:     keepOrsak ? prev.orsak : (r.orsak || ""),
+            kommentar: prev?.kommentar        || r.kommentar || "",
           };
         });
-        const { error: upsErr } = await supabase
-          .from("deviations")
-          .upsert(rows, { onConflict: "user_id,datum,vnr" });
-        if (upsErr) throw new Error(upsErr.message);
+        await batchWrite(rows, { onConflict: "user_id,datum,vnr" });
         const nytt = records.filter((r) => !byKey.has(`${r.datum}|${r.vnr}`)).length;
         const upd  = records.length - nytt;
         setBackupStatus({ ok: true, msg: `Lade till ${nytt} nya poster, uppdaterade ${upd} befintliga.` });
