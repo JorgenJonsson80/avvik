@@ -13,7 +13,8 @@ export function useDeviations({ datum } = {}) {
       .from("deviations")
       .select("*")
       .order("datum", { ascending: false })
-      .order("vnr");
+      .order("vnr")
+      .limit(100000); // PostgREST default cap är 1000 — sätt högt för historik
     if (datum) q = q.eq("datum", datum);
     const { data, error: err } = await q;
     if (err) setError(err.message);
