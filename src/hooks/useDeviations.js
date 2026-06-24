@@ -9,17 +9,30 @@ export function useDeviations({ datum } = {}) {
   const fetch = useCallback(async () => {
     setLoading(true);
     setError(null);
-    let q = supabase
-      .from("deviations")
-      .select("*")
-      .order("datum", { ascending: false })
-      .order("vnr")
-      .limit(100000); // PostgREST default cap är 1000 — sätt högt för historik
-    if (datum) q = q.eq("datum", datum);
-    const { data, error: err } = await q;
-    if (err) setError(err.message);
-    else setDeviations(data ?? []);
-    setLoading(false);
+    try {
+      // PostgREST har en server-side max_rows (default 1000) som limit() inte kan overrida.
+      // Paginera istället tills svaret är kortare än PAGE_SIZE.
+      const PAGE_SIZE = 1000;
+      let allData = [];
+      let from = 0;
+      while (true) {
+        let q = supabase
+          .from("deviations")
+          .select("*")
+          .order("datum", { ascending: false })
+          .order("vnr")
+          .range(from, from + PAGE_SIZE - 1);
+        if (datum) q = q.eq("datum", datum);
+        const { data, error: err } = await q;
+        if (err) { setError(err.message); break; }
+        allData = allData.concat(data ?? []);
+        if (!data || data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      setDeviations(allData);
+    } finally {
+      setLoading(false);
+    }
   }, [datum]);
 
   useEffect(() => { fetch(); }, [fetch]);
