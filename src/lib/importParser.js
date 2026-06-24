@@ -318,19 +318,32 @@ export async function readRaderFile(file) {
  * Returnerar { records, error }.
  */
 export function parseBackupFile(workbook) {
-  // Exportfilen har flera flikar — datan ligger i "Rådata", inte första fliken
-  const findSheet = (...names) => {
+  // Normalisera sheetnamn för robustare jämförelse (hanterar å/ä/ö-encoding-varianter)
+  const norm = (s) => String(s).normalize("NFC").toLowerCase().replace(/\s+/g, "");
+
+  // 1. Hitta flik via namn
+  const findByName = (...names) => {
     for (const n of names) {
-      const match = workbook.SheetNames.find(
-        (s) => s.toLowerCase().replace(/\s+/g, "") === n.toLowerCase().replace(/\s+/g, "")
-      );
+      const match = workbook.SheetNames.find((s) => norm(s) === norm(n));
       if (match) return workbook.Sheets[match];
     }
     return null;
   };
+
+  // 2. Fallback: skanna alla flikar efter en som har VNR + Datum
+  const findByColumns = () => {
+    for (const name of workbook.SheetNames) {
+      const sheet = workbook.Sheets[name];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      if (rows.length > 0 && "VNR" in rows[0] && "Datum" in rows[0]) return sheet;
+    }
+    return null;
+  };
+
   const sheet =
-    findSheet("Rådata", "Radata") ||
-    findSheet("Per avvikelse", "Peravvikelse") ||
+    findByName("Rådata", "Radata", "Rådata", "rådata") ||
+    findByName("Per avvikelse", "Peravvikelse") ||
+    findByColumns() ||
     workbook.Sheets[workbook.SheetNames[0]];
 
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
@@ -338,7 +351,10 @@ export function parseBackupFile(workbook) {
 
   const first = rows[0];
   if (!("VNR" in first) || !("Datum" in first)) {
-    return { records: [], error: "Filen verkar inte vara en AvvikelseLive-export (hittade ingen Rådata-flik med Datum + VNR)." };
+    return {
+      records: [],
+      error: `Hittade inte kolumnerna VNR och Datum. Flikar i filen: ${workbook.SheetNames.join(", ")}. Kolumner på första fliken: ${Object.keys(first).slice(0, 8).join(", ")}.`,
+    };
   }
 
   // "Zon"-kolumnen kan komma in som "Zon 2" — strippa prefixet
