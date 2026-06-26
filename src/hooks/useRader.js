@@ -11,7 +11,8 @@ export function useRader() {
       .from("rader")
       .select("*")
       .order("datum", { ascending: false });
-    setRader(data ?? []);
+    // Normalisera datum direkt — Supabase kan returnera "2026-05-20T00:00:00+00:00"
+    setRader((data ?? []).map((r) => ({ ...r, datum: String(r.datum).slice(0, 10) })));
     setLoading(false);
   }, []);
 
@@ -26,7 +27,9 @@ export function useRader() {
   }
 
   function getRaderForDatum(datum) {
-    return rader.find((r) => r.datum === datum) ?? { zon1: 0, zon2: 0, zon3: 0 };
+    const key = String(datum).slice(0, 10);
+    return rader.find((r) => String(r.datum).slice(0, 10) === key)
+      ?? { zon1: 0, zon2: 0, zon3: 0 };
   }
 
   return { rader, loading, upsertRader, getRaderForDatum, refetch: fetch };

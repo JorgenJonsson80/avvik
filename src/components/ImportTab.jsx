@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useDeviations } from "../hooks/useDeviations.js";
 import { useRader } from "../hooks/useRader.js";
 import { supabase } from "../lib/supabase.js";
-import { readX08File, readRaderFile, readBackupFile, mergeDeviations } from "../lib/importParser.js";
+import { readX08File, readRaderFile, readBackupFile, mergeDeviations, cleanDeviationRow } from "../lib/importParser.js";
 import { OrsaksSelect } from "./shared/OrsaksSelect.jsx";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
 import { formatMinBefore } from "../lib/routes.js";
@@ -173,7 +173,7 @@ export function ImportTab() {
 
       if (mode === "återställ") {
         await supabase.from("deviations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-        const rows = records.map((r) => ({ ...r, user_id: uid }));
+        const rows = records.map((r) => cleanDeviationRow({ ...r, user_id: uid }));
         await batchWrite(rows);
         setBackupStatus({ ok: true, msg: `Återställt ${records.length} poster från backup.` });
       } else {
@@ -183,12 +183,13 @@ export function ImportTab() {
         const rows = records.map((r) => {
           const prev = byKey.get(`${r.datum}|${r.vnr}`);
           const keepOrsak = prev?.orsak && prev.orsak !== "Okänd";
-          return {
+          return cleanDeviationRow({
             ...r,
             user_id:   uid,
+            id:        prev?.id,
             orsak:     keepOrsak ? prev.orsak : (r.orsak || ""),
             kommentar: prev?.kommentar        || r.kommentar || "",
-          };
+          }, { keepId: true });
         });
         await batchWrite(rows, { onConflict: "user_id,datum,vnr" });
         const nytt = records.filter((r) => !byKey.has(`${r.datum}|${r.vnr}`)).length;

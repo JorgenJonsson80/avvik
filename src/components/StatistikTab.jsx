@@ -31,6 +31,7 @@ export function StatistikTab() {
   const { getRaderForDatum }    = useRader();
   const { settings, save }      = useSettings();
 
+  const [filterDatum,  setFilterDatum]  = useState("");
   const [fromDate,     setFromDate]     = useState("");
   const [toDate,       setToDate]       = useState("");
   const [filterZon,    setFilterZon]    = useState("");
@@ -39,13 +40,22 @@ export function StatistikTab() {
   const [draftCost,    setDraftCost]    = useState("");
   const [draftTime,    setDraftTime]    = useState("");
 
+  const allaDatum = useMemo(
+    () => [...new Set(deviations.map((d) => String(d.datum).slice(0, 10)))].sort().reverse(),
+    [deviations]
+  );
+
   const filtered = useMemo(() => {
     let r = deviations;
-    if (fromDate)   r = r.filter((d) => d.datum >= fromDate);
-    if (toDate)     r = r.filter((d) => d.datum <= toDate);
-    if (filterZon)  r = r.filter((d) => d.zon === filterZon);
+    if (filterDatum) {
+      r = r.filter((d) => String(d.datum).slice(0, 10) === filterDatum);
+    } else {
+      if (fromDate) r = r.filter((d) => String(d.datum).slice(0, 10) >= fromDate);
+      if (toDate)   r = r.filter((d) => String(d.datum).slice(0, 10) <= toDate);
+    }
+    if (filterZon) r = r.filter((d) => d.zon === filterZon);
     return r;
-  }, [deviations, fromDate, toDate, filterZon]);
+  }, [deviations, filterDatum, fromDate, toDate, filterZon]);
 
   const goal     = parseFloat(settings.goal)     || 2.0;
   const cost     = parseFloat(settings.cost)     || 63;
@@ -65,8 +75,8 @@ export function StatistikTab() {
   }, [dates, getRaderForDatum]);
 
   const avvPerZon = useMemo(() => {
-    const m = { "1": 0, "2": 0, "3": 0 };
-    filtered.forEach((r) => { if (m[r.zon] !== undefined) m[r.zon] += r.count || 0; });
+    const m = {};
+    filtered.forEach((r) => { const z = r.zon || "?"; m[z] = (m[z] || 0) + (r.count || 0); });
     return m;
   }, [filtered]);
 
@@ -123,10 +133,14 @@ export function StatistikTab() {
     <div style={s.wrap}>
       {/* Filter */}
       <div style={s.filterRow}>
+        <select value={filterDatum} onChange={(e) => setFilterDatum(e.target.value)} style={s.sel}>
+          <option value="">Alla datum</option>
+          {allaDatum.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
         <span style={s.dim}>Från:</span>
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={s.dateIn} />
+        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...s.dateIn, opacity: filterDatum ? 0.4 : 1 }} disabled={!!filterDatum} />
         <span style={s.dim}>Till:</span>
-        <input type="date" value={toDate}   onChange={(e) => setToDate(e.target.value)}   style={s.dateIn} />
+        <input type="date" value={toDate}   onChange={(e) => setToDate(e.target.value)}   style={{ ...s.dateIn, opacity: filterDatum ? 0.4 : 1 }} disabled={!!filterDatum} />
         <select value={filterZon} onChange={(e) => setFilterZon(e.target.value)} style={s.sel}>
           <option value="">Alla zoner</option>
           <option value="1">Zon 1</option><option value="2">Zon 2</option><option value="3">Zon 3</option>

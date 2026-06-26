@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useDeviations } from "../hooks/useDeviations.js";
 import { useRader } from "../hooks/useRader.js";
 import { useSettings } from "../hooks/useSettings.js";
-import { classifyLocation } from "../lib/classify.js";
+import { classifyLocation, ALLA_ZONER } from "../lib/classify.js";
 import { fmtKr, fmtTimmar } from "../lib/dates.js";
 
 // ─── Veckologik ──────────────────────────────────────────────────────────────
@@ -34,8 +34,8 @@ const ZON_COLOR = { "1": "#4ade80", "2": "#60a5fa", "3": "#f97316" };
 function sumCount(arr) { return arr.reduce((s, r) => s + (r.count || 0), 0); }
 
 function sumByZon(arr) {
-  const m = { "1": 0, "2": 0, "3": 0 };
-  arr.forEach((r) => { if (m[r.zon] !== undefined) m[r.zon] += r.count || 0; });
+  const m = {};
+  arr.forEach((r) => { const z = r.zon || "?"; m[z] = (m[z] || 0) + (r.count || 0); });
   return m;
 }
 
@@ -70,6 +70,18 @@ export function VeckaTab() {
   const { settings }            = useSettings();
 
   const [weekIdx, setWeekIdx] = useState(0);
+  const [copiedKey, setCopiedKey] = useState(null);
+  const copyText = (text, key) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1800);
+    }).catch(() => {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); setCopiedKey(key); setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1800); } catch (e) {}
+      document.body.removeChild(ta);
+    });
+  };
 
   const cost     = parseFloat(settings.cost)     || 63;
   const timePMin = parseFloat(settings.time_min) || 13;
@@ -159,6 +171,38 @@ export function VeckaTab() {
     return { datum: d, dag: SWE_DAYS[wi], avv, rader: tot, prom: p };
   }), [daysInWeek, current, getRaderForDatum]);
 
+  const formatWeekReport = () => {
+    const lines = [];
+    lines.push(`Veckorapport ${weekLabel(currentKey)}`);
+    lines.push("");
+    lines.push(`Totalt: ${currTotal} avvikelser` + (diffPct !== null ? ` (${diffPct > 0 ? "+" : ""}${diffPct}% mot förra veckan)` : ""));
+    if (prevKey) lines.push(`Förra veckan: ${prevTotal} avvikelser (${weekLabel(prevKey)})`);
+    lines.push(`Kostnad: ${fmtKr(currKostnad)}` + (prevTotal > 0 ? ` (${currKostnad > prevKostnad ? "+" : ""}${fmtKr(currKostnad - prevKostnad)})` : ""));
+    lines.push(`Nedlagd tid: ${fmtTimmar(currTotal * timePMin)}`);
+    if (currProm !== null) lines.push(`Avvikelsegrad: ${currProm.toFixed(2)}‰` + (currProm > goal ? " (över mål)" : " (under mål)"));
+    lines.push(`Kritiska (<30 min före avgång): ${criticalCount(current)}`);
+    const minForeVals = (arr) => arr.filter((r) => r.min_fore_avgang != null && !r.nasta_dag).map((r) => r.min_fore_avgang);
+    const avgMinFore  = (vals) => vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null;
+    const currAvgMin  = avgMinFore(minForeVals(current));
+    const prevAvgMin  = avgMinFore(minForeVals(prev));
+    if (currAvgMin !== null) {
+      const diffMin = prevAvgMin !== null ? currAvgMin - prevAvgMin : null;
+      lines.push(`Snitt min före avgång: ${currAvgMin} min` + (diffMin !== null ? ` (${diffMin > 0 ? "+" : ""}${diffMin} min mot förra veckan)` : ""));
+    }
+    const zonerMedData = ALLA_ZONER.filter((z) => (currByZon[z] || 0) > 0 || (prevByZon[z] || 0) > 0);
+    if (zonerMedData.length > 0) {
+      lines.push(""); lines.push("Per zon:");
+      for (const z of zonerMedData) {
+        const c = currByZon[z] || 0, p = prevByZon[z] || 0, diff = c - p;
+        const label = /^\d+$/.test(z) ? `Zon ${z}` : z;
+        lines.push(`  ${label}: ${c}` + (prevKey ? ` (${p} förra veckan, ${diff > 0 ? "+" : ""}${diff})` : ""));
+      }
+    }
+    if (worsened.length > 0) lines.push("Försämrade K-banor: " + worsened.map((c) => `${c.k} (${c.prev}→${c.curr}, +${c.diff})`).join(", "));
+    if (improved.length > 0) lines.push("Förbättrade K-banor: " + improved.map((c) => `${c.k} (${c.prev}→${c.curr}, ${c.diff})`).join(", "));
+    return lines.join("\n");
+  };
+
   if (loading) return <div style={s.status}>Laddar…</div>;
   if (weekKeys.length === 0) return <div style={s.status}>Inga data ännu. Importera avvikelser.</div>;
 
@@ -172,6 +216,15 @@ export function VeckaTab() {
           <div style={{ fontSize: 11, color: "#555" }}>Vecka {weekIdx === 0 ? "— senaste" : weekIdx + 1} · {currentKey}</div>
         </div>
         <button onClick={() => setWeekIdx((i) => Math.max(i - 1, 0))} disabled={weekIdx === 0} style={s.navBtn}>→</button>
+        <button
+          onClick={() => copyText(formatWeekReport(), "report")}
+          style={{
+            background: copiedKey === "report" ? "#1e3a28" : "#1e1e2e",
+            color: copiedKey === "report" ? "#4ade80" : "#888",
+            border: "1px solid #2a2a3a", borderRadius: 6, padding: "5px 12px",
+            fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+          }}
+        >{copiedKey === "report" ? "✓ Kopierat" : "📋 Kopiera rapport"}</button>
       </div>
 
       {/* Huvud-KPI */}

@@ -1,455 +1,483 @@
+// src/components/AnalysTab.jsx
+// Analys-fliken med:
+//  - Intervallfilter (3 / 7 / 14 / 30 dagar / All)
+//  - Trend (ökande/stabil/minskande, första halvan vs andra halvan)
+//  - Mest kritisk zon, vanligaste orsak
+//  - Återkommande VNR (sorterat på streak)
+//  - Aktiva streaks (konsekutiva dagar fram till senaste datadag)
+//  - Mest kritiska tidpunkt (timme med flest avvikelser, visas som intervall "13–14")
+//  - Konkret åtgärdslista (rule-based, prioriterad) — utan AI-anrop
+//
+// Kopierad ur den fungerande single-file-appen och anpassad till repots fältnamn
+// (snake_case: route_code, min_fore_avgang osv).
+
 import { useState, useMemo } from "react";
 import { useDeviations } from "../hooks/useDeviations.js";
-import { useRader } from "../hooks/useRader.js";
-import { useSettings } from "../hooks/useSettings.js";
+import { orsakBreakdown } from "../lib/orsak.js";
+import { classifyLocation } from "../lib/classify.js";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
 
-// ─── Hjälpare ────────────────────────────────────────────────────────────────
-
-function promille(avv, rad) { return rad > 0 ? avv / rad * 1000 : null; }
-function fmtProm(v) { return v === null ? "—" : v.toFixed(2) + " ‰"; }
-
-function goalColor(p, goal) {
-  if (p === null) return "#60a5fa";
-  if (p <= goal) return "#4ade80";
-  if (p <= goal * 1.25) return "#fbbf24";
-  return "#f87171";
+function Badge({ text }) {
+  const colors = {
+    "1": "#4ade80", "2": "#60a5fa", "3": "#f97316",
+    "Loax": "#a78bfa", "KG kyl": "#22d3ee", "?": "#6b7280",
+  };
+  const isNum = /^\d+$/.test(text);
+  return (
+    <span style={{
+      background: colors[text] || "#6b7280", color: "#0a0a0f",
+      borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700,
+      fontFamily: "monospace", letterSpacing: 1, whiteSpace: "nowrap",
+    }}>{isNum ? `Z${text}` : text}</span>
+  );
 }
-
-function isoToday() {
-  return new Date().toISOString().slice(0, 10);
-}
-function isoOffset(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-// ─── Morgonbriefing ──────────────────────────────────────────────────────────
-
-function calcBriefing(devs) {
-  const tips = [];
-
-  // 1. Peak-timme per K-bana
-  const hourKbana = {};
-  for (const r of devs) {
-    if (!r.hours?.length || !r.kbana) continue;
-    for (const h of r.hours) {
-      const k = `${h}|${r.kbana}`;
-      hourKbana[k] = (hourKbana[k] || 0) + 1;
-    }
-  }
-  const topCombo = Object.entries(hourKbana).sort((a, b) => b[1] - a[1]).slice(0, 2);
-  for (const [key, count] of topCombo) {
-    if (count < 2) continue;
-    const [h, kbana] = key.split("|");
-    const totalInKbana = devs.filter((r) => r.kbana === kbana).reduce((s, r) => s + r.count, 0);
-    const locs = [...new Set(
-      devs.filter((r) => r.kbana === kbana && r.hours?.includes(+h)).flatMap((r) => r.locations || [])
-    )];
-    tips.push({
-      typ: "tid",
-      text: `Kl ${h}–${+h + 1}: håll extra koll på ${kbana}${locs[0] ? ` (${locs[0]})` : ""} — ${count} av ${totalInKbana} avv i den timmen`,
-    });
-  }
-
-  // 2. Upprepad "Försent påfylld"
-  const pfMap = {};
-  for (const r of devs) {
-    if (r.orsak !== "Försent påfylld") continue;
-    if (!pfMap[r.vnr]) pfMap[r.vnr] = { days: 0, locs: new Set() };
-    pfMap[r.vnr].days++;
-    (r.locations || []).forEach((l) => pfMap[r.vnr].locs.add(l));
-  }
-  for (const [vnr, v] of Object.entries(pfMap).sort((a, b) => b[1].days - a[1].days)) {
-    if (v.days < 2) continue;
-    const loc = [...v.locs][0] || "";
-    tips.push({
-      typ: "pf",
-      text: `VNR ${vnr}${loc ? ` på ${loc}` : ""}: sen påfyllning ${v.days} ggr — se över PF-punkt eller beställningspunkt`,
-    });
-  }
-
-  // 3. Upprepad "Saldofel"
-  const sfMap = {};
-  for (const r of devs) {
-    if (r.orsak !== "Saldofel") continue;
-    if (!sfMap[r.vnr]) sfMap[r.vnr] = { days: 0, locs: new Set() };
-    sfMap[r.vnr].days++;
-    (r.locations || []).forEach((l) => sfMap[r.vnr].locs.add(l));
-  }
-  for (const [vnr, v] of Object.entries(sfMap).sort((a, b) => b[1].days - a[1].days)) {
-    if (v.days < 2) continue;
-    const loc = [...v.locs][0] || "";
-    tips.push({
-      typ: "saldo",
-      text: `VNR ${vnr}${loc ? ` på ${loc}` : ""}: saldofel ${v.days} ggr — inventera platsen`,
-    });
-  }
-
-  // 4. Kontrollscanning flera dagar i rad
-  const ktrlMap = {};
-  for (const r of devs) {
-    if (!r.kontroll_scans || r.kontroll_scans === 0) continue;
-    if (!ktrlMap[r.vnr]) ktrlMap[r.vnr] = { days: 0, locs: new Set() };
-    ktrlMap[r.vnr].days++;
-    (r.locations || []).forEach((l) => ktrlMap[r.vnr].locs.add(l));
-  }
-  for (const [vnr, v] of Object.entries(ktrlMap).sort((a, b) => b[1].days - a[1].days)) {
-    if (v.days < 2) continue;
-    const loc = [...v.locs][0] || "";
-    tips.push({
-      typ: "kontroll",
-      text: `VNR ${vnr}${loc ? ` på ${loc}` : ""}: kontrollscanning ${v.days} dagar — undersök plockinstruktionen`,
-    });
-  }
-
-  // 5. Hög andel kritiskt (<30 min före avgång)
-  const kritiska = devs.filter((r) => r.min_fore_avgang !== null && r.min_fore_avgang < 30);
-  const totKrit  = kritiska.reduce((s, r) => s + r.count, 0);
-  const totAvv   = devs.reduce((s, r) => s + r.count, 0);
-  if (totAvv > 0 && totKrit / totAvv > 0.15) {
-    tips.push({
-      typ: "tid",
-      text: `${totKrit} avv under 30 min före avgång (${Math.round(totKrit / totAvv * 100)}%) — prioritera plockordning tidigt`,
-    });
-  }
-
-  return tips.slice(0, 8);
-}
-
-// ─── Streaks ──────────────────────────────────────────────────────────────────
-
-function calcStreaks(dayMap, goal, sortedDates) {
-  let maxOver = 0, maxUnder = 0, curOver = 0, curUnder = 0;
-  for (const d of sortedDates) {
-    const p = promille(dayMap[d].avv, dayMap[d].rader);
-    if (p === null) continue;
-    if (p > goal) { curOver++; curUnder = 0; }
-    else           { curUnder++; curOver = 0; }
-    if (curOver  > maxOver)  maxOver  = curOver;
-    if (curUnder > maxUnder) maxUnder = curUnder;
-  }
-  let overStreak = 0, underStreak = 0;
-  for (let i = sortedDates.length - 1; i >= 0; i--) {
-    const p = promille(dayMap[sortedDates[i]].avv, dayMap[sortedDates[i]].rader);
-    if (p === null) break;
-    if (i === sortedDates.length - 1) {
-      if (p > goal) overStreak = 1; else underStreak = 1;
-    } else {
-      const pp = promille(dayMap[sortedDates[i + 1]].avv, dayMap[sortedDates[i + 1]].rader);
-      if (pp === null) break;
-      if (p > goal && pp > goal) overStreak++;
-      else if (p <= goal && pp <= goal) underStreak++;
-      else break;
-    }
-  }
-  return { overStreak, underStreak, maxOver, maxUnder };
-}
-
-// ─── Peak-timme ───────────────────────────────────────────────────────────────
-
-function calcPeakHour(devs) {
-  const hc = Array(24).fill(0);
-  for (const r of devs) {
-    if (!r.hours?.length) continue;
-    for (const h of r.hours) if (h >= 0 && h < 24) hc[h]++;
-  }
-  const max = Math.max(...hc);
-  if (max === 0) return null;
-  const ph = hc.indexOf(max);
-  return { hour: ph, nextHour: (ph + 1) % 24, count: max, showRange: hc[(ph + 1) % 24] >= max * 0.75 };
-}
-
-// ─── Återkommande VNR ─────────────────────────────────────────────────────────
-
-function calcRecurring(devs) {
-  const m = {};
-  for (const r of devs) {
-    if (!m[r.vnr]) m[r.vnr] = new Set();
-    m[r.vnr].add(r.datum);
-  }
-  return Object.entries(m)
-    .filter(([, d]) => d.size >= 2)
-    .map(([vnr, dates]) => {
-      const recs = devs.filter((r) => r.vnr === vnr);
-      return {
-        vnr, days: dates.size,
-        totalCount: recs.reduce((s, r) => s + r.count, 0),
-        locs:  [...new Set(recs.flatMap((r) => r.locations || []))],
-        kbana: recs.find((r) => r.kbana)?.kbana || "",
-      };
-    })
-    .sort((a, b) => b.days - a.days || b.totalCount - a.totalCount)
-    .slice(0, 12);
-}
-
-// ─── PERIOD-FILTER CONFIG ─────────────────────────────────────────────────────
-
-const PERIODS = [
-  { id: "igår",  label: "Igår" },
-  { id: "7",     label: "7 dagar" },
-  { id: "14",    label: "14 dagar" },
-  { id: "30",    label: "30 dagar" },
-  { id: "all",   label: "All historik" },
-];
-
-function filterByPeriod(devs, period) {
-  if (period === "all")  return devs;
-  const yesterday = isoOffset(-1);
-  if (period === "igår") return devs.filter((r) => r.datum === yesterday);
-  const cutoff = isoOffset(-parseInt(period));
-  return devs.filter((r) => r.datum >= cutoff);
-}
-
-// ─── TYP → stil ──────────────────────────────────────────────────────────────
-
-const TYP_STYLE = {
-  tid:      { border: "#7c6af7", label: "Tid",      lc: "#7c6af7" },
-  pf:       { border: "#f97316", label: "Påfyllnad", lc: "#f97316" },
-  saldo:    { border: "#f87171", label: "Saldo",     lc: "#f87171" },
-  kontroll: { border: "#fbbf24", label: "Kontroll",  lc: "#fbbf24" },
-};
-
-const PRIO_COLOR = { "hög": "#f87171", "medel": "#fbbf24" };
-
-// ─── AnalysTab ────────────────────────────────────────────────────────────────
 
 export function AnalysTab() {
-  const [period, setPeriod]       = useState("7");
-  const { deviations, loading }   = useDeviations();
-  const { getRaderForDatum }      = useRader();
-  const { settings }              = useSettings();
-  const goal = parseFloat(settings.goal) || 2.0;
+  const { deviations, loading } = useDeviations();
+  const [filterDagar, setFilterDagar] = useState("30");
+  const [copiedKey, setCopiedKey] = useState(null); // index eller "all" — visar "✓ Kopierat"
 
-  // Alla datum (för streaks — alltid all data)
-  const allDates = useMemo(
-    () => [...new Set(deviations.map((r) => r.datum))].sort(),
-    [deviations]
+  const copyText = (text, key) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1800);
+    }).catch(() => {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); setCopiedKey(key); setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1800); } catch (e) {}
+      document.body.removeChild(ta);
+    });
+  };
+
+  // ── Filtrera på dagar bakåt från senaste datadag ──────────────────────────
+  const filtered = useMemo(() => {
+    const all = deviations.filter((r) => r.vnr);
+    if (all.length === 0) return [];
+    if (filterDagar === "all") return all;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - parseInt(filterDagar, 10));
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    return all.filter((r) => String(r.datum).slice(0, 10) >= cutoffStr);
+  }, [deviations, filterDagar]);
+
+  // ── Grundsummor ───────────────────────────────────────────────────────────
+  const totalAvv = useMemo(() => filtered.reduce((s, r) => s + (r.count || 0), 0), [filtered]);
+  const dates = useMemo(
+    () => [...new Set(filtered.map((r) => String(r.datum).slice(0, 10)))].sort(),
+    [filtered]
   );
-  const allDayMap = useMemo(() => {
-    const m = {};
-    for (const d of allDates) {
-      const avv = deviations.filter((r) => r.datum === d).reduce((s, r) => s + r.count, 0);
-      const rd  = getRaderForDatum(d);
-      m[d] = { avv, rader: (rd.zon1 || 0) + (rd.zon2 || 0) + (rd.zon3 || 0) };
-    }
-    return m;
-  }, [deviations, allDates, getRaderForDatum]);
 
-  // Filtrerad data för briefing + analys
-  const filtered = useMemo(() => filterByPeriod(deviations, period), [deviations, period]);
-  const filtDates = useMemo(() => [...new Set(filtered.map((r) => r.datum))].sort(), [filtered]);
-  const filtDayMap = useMemo(() => {
+  // ── Per zon (för "kritisk zon"-kortet) ────────────────────────────────────
+  const zonRank = useMemo(() => {
     const m = {};
-    for (const d of filtDates) {
-      const avv = filtered.filter((r) => r.datum === d).reduce((s, r) => s + r.count, 0);
-      const rd  = getRaderForDatum(d);
-      m[d] = { avv, rader: (rd.zon1 || 0) + (rd.zon2 || 0) + (rd.zon3 || 0) };
+    for (const r of filtered) {
+      const z = r.zon || "?";
+      if (!m[z]) m[z] = { count: 0, vnrs: new Set() };
+      m[z].count += r.count || 0;
+      m[z].vnrs.add(r.vnr);
     }
-    return m;
-  }, [filtered, filtDates, getRaderForDatum]);
-
-  const briefing  = useMemo(() => calcBriefing(filtered), [filtered]);
-  const peak      = useMemo(() => calcPeakHour(filtered), [filtered]);
-  const recurring = useMemo(() => calcRecurring(filtered), [filtered]);
-  const { overStreak, underStreak, maxOver, maxUnder } = useMemo(
-    () => calcStreaks(allDayMap, goal, allDates), [allDayMap, goal, allDates]
-  );
-  const orsakCount = useMemo(() => {
-    const m = {};
-    filtered.forEach((r) => { m[r.orsak || "Okänd"] = (m[r.orsak || "Okänd"] || 0) + r.count; });
-    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+    return Object.entries(m).sort((a, b) => b[1].count - a[1].count);
   }, [filtered]);
-  const totAvv = filtered.reduce((s, r) => s + r.count, 0);
+
+  // ── Återkommande VNR + streaks ────────────────────────────────────────────
+  const vnrInfo = useMemo(() => {
+    const m = {};
+    for (const r of filtered) {
+      const datum = String(r.datum).slice(0, 10);
+      if (!m[r.vnr]) {
+        m[r.vnr] = {
+          days: new Set(),
+          total: 0,
+          zon: r.zon,
+          orsak: r.orsak,
+          location: r.locations?.[0] || "",
+          kbana: r.kbana || classifyLocation(r.locations?.[0]) || "",
+        };
+      }
+      m[r.vnr].days.add(datum);
+      m[r.vnr].total += r.count || 0;
+    }
+    return m;
+  }, [filtered]);
+
+  // Längsta konsekutiva svit (oavsett om aktiv eller inte)
+  const longestStreak = (daysSet) => {
+    const sorted = [...daysSet].sort();
+    if (sorted.length === 0) return 0;
+    let best = 1, cur = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const diff = Math.round(
+        (new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000
+      );
+      if (diff === 1) { cur++; best = Math.max(best, cur); }
+      else cur = 1;
+    }
+    return best;
+  };
+  const streakActive = (daysSet, lastDataDay) => {
+    const sorted = [...daysSet].sort();
+    return sorted[sorted.length - 1] === lastDataDay;
+  };
+  const lastDataDay = dates[dates.length - 1];
+
+  const recurringAll = useMemo(() => {
+    return Object.entries(vnrInfo)
+      .map(([vnr, v]) => ({
+        vnr,
+        days: v.days.size,
+        streak: longestStreak(v.days),
+        active: streakActive(v.days, lastDataDay),
+        total: v.total,
+        zon: v.zon,
+        orsak: v.orsak,
+        location: v.location,
+        kbana: v.kbana,
+      }))
+      .filter((v) => v.days > 1)
+      .sort((a, b) => b.streak - a.streak || b.total - a.total);
+  }, [vnrInfo, lastDataDay]);
+
+  // ── Mest kritiska tidpunkt (timme med flest avvikelser) ───────────────────
+  const hourStats = useMemo(() => {
+    const hourMap = {};
+    let totalSamples = 0;
+    for (const r of filtered) {
+      // events kan komma som scans-tabell (egen tabell) eller som inbäddad array.
+      // Försök båda; använd r.hours som sista fallback.
+      const events = Array.isArray(r.events) ? r.events
+        : Array.isArray(r.scans) ? r.scans : null;
+      if (events) {
+        for (const ev of events) {
+          if (ev?.tid) {
+            const h = parseInt(String(ev.tid).split(":")[0], 10);
+            if (!isNaN(h)) { hourMap[h] = (hourMap[h] || 0) + 1; totalSamples++; }
+          }
+        }
+      } else if (Array.isArray(r.hours)) {
+        for (const h of r.hours) { hourMap[h] = (hourMap[h] || 0) + 1; totalSamples++; }
+      }
+    }
+    const top = Object.entries(hourMap).sort((a, b) => b[1] - a[1])[0];
+    return { top, totalSamples };
+  }, [filtered]);
+
+  // ── Trend (första halvan vs andra halvan) ─────────────────────────────────
+  const trend = useMemo(() => {
+    const perDay = {};
+    for (const r of filtered) {
+      const d = String(r.datum).slice(0, 10);
+      perDay[d] = (perDay[d] || 0) + (r.count || 0);
+    }
+    const vals = dates.map((d) => perDay[d] || 0);
+    const half = Math.floor(vals.length / 2);
+    const first = vals.slice(0, half);
+    const last = vals.slice(half);
+    const firstAvg = first.reduce((s, v) => s + v, 0) / (first.length || 1);
+    const lastAvg = last.reduce((s, v) => s + v, 0) / (last.length || 1);
+    const diff = lastAvg - firstAvg;
+    const label = diff > 5 ? "↑ Ökande" : diff < -5 ? "↓ Minskande" : "→ Stabil";
+    const color = diff > 5 ? "#f97316" : diff < -5 ? "#4ade80" : "#60a5fa";
+    return { label, color, firstAvg, lastAvg };
+  }, [filtered, dates]);
+
+  // ── Vanligaste orsak (per scan-orsak via orsakBreakdown) ──────────────────
+  const topOrsak = useMemo(() => {
+    const m = {};
+    for (const r of filtered) {
+      const dist = orsakBreakdown(r);
+      for (const [o, n] of Object.entries(dist)) {
+        if (n > 0) m[o] = (m[o] || 0) + n;
+      }
+    }
+    return Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+  }, [filtered]);
+
+  // ── Kritiska före avgång (< 30 min) ───────────────────────────────────────
+  const criticalDeparture = useMemo(
+    () => filtered.filter((r) =>
+      r.min_fore_avgang !== null && r.min_fore_avgang !== undefined
+      && !r.nasta_dag && r.min_fore_avgang < 30),
+    [filtered]
+  );
+
+  // ── Åtgärdslista (rule-based, prioriterad) ────────────────────────────────
+  const actions = useMemo(() => {
+    const out = [];
+    // 1. Aktiva streaks ≥ 2 → hög prio
+    for (const v of recurringAll.filter((v) => v.streak >= 2 && v.active).slice(0, 12)) {
+      out.push({
+        pri: v.streak >= 3 ? "hög" : "medel",
+        sortKey: 100 + v.streak * 10,
+        vnr: v.vnr,
+        location: v.location,
+        kbana: v.kbana,
+        text: `${v.streak} dagar i rad — inventera platsen eller kolla påfyllningsrutin`,
+        info: `Total: ×${v.total} · senaste orsak: ${v.orsak || "—"}`,
+      });
+    }
+    // 2. Återkommande ≥ 3 olika dagar (ej i följd)
+    for (const v of recurringAll.filter((v) => v.days >= 3 && !(v.streak >= 2 && v.active)).slice(0, 8)) {
+      out.push({
+        pri: "medel",
+        sortKey: 50 + v.days,
+        vnr: v.vnr,
+        location: v.location,
+        kbana: v.kbana,
+        text: `återkommande problem på ${v.days} olika dagar`,
+        info: `Total: ×${v.total} · vanlig orsak: ${v.orsak || "—"}`,
+      });
+    }
+    // 3. Hög dagsvolym ≥ 10 på en VNR
+    for (const r of filtered.filter((r) => r.count >= 10).slice(0, 6)) {
+      out.push({
+        pri: "medel",
+        sortKey: 30 + Math.min(r.count, 30),
+        vnr: r.vnr,
+        location: r.locations?.[0] || "",
+        kbana: r.kbana || classifyLocation(r.locations?.[0]) || "",
+        text: `${r.count} avvikelser samma dag (${String(r.datum).slice(0, 10)}) — engångstopp, kolla saldo`,
+        info: r.orsak ? `Orsak: ${r.orsak}` : "",
+      });
+    }
+    // Deduplicera på vnr + text
+    const seen = new Set();
+    const dedup = [];
+    for (const a of out.sort((a, b) => b.sortKey - a.sortKey)) {
+      const k = `${a.vnr}|${a.text}`;
+      if (!seen.has(k)) { seen.add(k); dedup.push(a); }
+    }
+    return dedup;
+  }, [recurringAll, filtered]);
+
+  // ── Formatterare: ren text, klar att klistra in i Teams/Slack/SMS ──
+  const formatAction = (a) => {
+    const loc = a.location ? ` (${a.location}${a.kbana ? `, ${a.kbana}` : ""})` : "";
+    return `[${a.pri.toUpperCase()}] VNR ${a.vnr}${loc} — ${a.text}`;
+  };
+  const formatAllActions = () => {
+    const periodLabel = filterDagar === "all" ? "all historik" : `senaste ${filterDagar} dagarna`;
+    const header = `Att kolla upp (${periodLabel}, ${actions.length} st):`;
+    const lines = actions.map((a, i) => `${i + 1}. ${formatAction(a)}`);
+    return [header, ...lines].join("\n");
+  };
 
   if (loading) return <div style={s.status}>Laddar analys…</div>;
-  if (deviations.length === 0) return <div style={s.status}>Inga avvikelser att analysera ännu.</div>;
 
-  const periodLabel = PERIODS.find((p) => p.id === period)?.label ?? "";
+  if (filtered.length === 0) {
+    return (
+      <div style={s.wrap}>
+        <div style={s.filterRow}>
+          <select value={filterDagar} onChange={(e) => setFilterDagar(e.target.value)} style={s.sel}>
+            <option value="3">Senaste 3 dagarna</option>
+            <option value="7">Senaste 7 dagarna</option>
+            <option value="14">Senaste 14 dagarna</option>
+            <option value="30">Senaste 30 dagarna</option>
+            <option value="all">All historik</option>
+          </select>
+        </div>
+        <div style={s.empty}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 14 }}>Ingen data att analysera i valt intervall</div>
+        </div>
+      </div>
+    );
+  }
+
+  const activeStreaks = recurringAll.filter((v) => v.streak >= 2 && v.active);
 
   return (
     <div style={s.wrap}>
-
-      {/* ── Periodväljare ───────────────────────────────────── */}
-      <div style={s.periodRow}>
-        {PERIODS.map((p) => (
-          <button
-            key={p.id}
-            style={{ ...s.periodBtn, ...(period === p.id ? s.periodActive : {}) }}
-            onClick={() => setPeriod(p.id)}
-          >
-            {p.label}
-          </button>
-        ))}
+      {/* Filter */}
+      <div style={s.filterRow}>
+        <select value={filterDagar} onChange={(e) => setFilterDagar(e.target.value)} style={s.sel}>
+          <option value="3">Senaste 3 dagarna</option>
+          <option value="7">Senaste 7 dagarna</option>
+          <option value="14">Senaste 14 dagarna</option>
+          <option value="30">Senaste 30 dagarna</option>
+          <option value="all">All historik</option>
+        </select>
+        <span style={s.dim}>{filtered.length} poster · {totalAvv} avvikelser · {dates.length} dagar</span>
       </div>
 
-      {/* ── Morgonbriefing ──────────────────────────────────── */}
-      <div style={s.sectionHdr}>Morgonbriefing — {periodLabel}</div>
-      {briefing.length === 0 ? (
-        <div style={{ ...s.panel, marginBottom: 20, color: "#444", fontSize: 13 }}>
-          Inga mönster att lyfta för den valda perioden.
+      {/* Översikts-kort */}
+      <div style={s.cardGrid}>
+        <div style={s.card}>
+          <div style={s.cardLabel}>Trend</div>
+          <div style={{ ...s.cardValue, color: trend.color }}>{trend.label}</div>
+          <div style={s.cardSub}>
+            Första halvan: {Math.round(trend.firstAvg)}/dag → andra halvan: {Math.round(trend.lastAvg)}/dag
+          </div>
         </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-          {briefing.map((tip, i) => {
-            const ts = TYP_STYLE[tip.typ] || TYP_STYLE.tid;
-            return (
-              <div key={i} style={{ ...s.briefRow, borderLeftColor: ts.border }}>
-                <span style={{ ...s.typTag, color: ts.lc, borderColor: ts.lc + "40", background: ts.lc + "12" }}>
-                  {ts.label}
-                </span>
-                <span style={s.briefText}>{tip.text}</span>
+
+        <div style={s.card}>
+          <div style={s.cardLabel}>Kritisk zon</div>
+          {zonRank[0] && (
+            <>
+              <div style={{ ...s.cardValue, color: "#f97316" }}>
+                {/^\d+$/.test(zonRank[0][0]) ? `Zon ${zonRank[0][0]}` : zonRank[0][0]}
               </div>
-            );
-          })}
+              <div style={s.cardSub}>
+                {zonRank[0][1].count} avvikelser · {zonRank[0][1].vnrs.size} unika VNR
+                {" · "}{Math.round(zonRank[0][1].count / totalAvv * 100)}% av totalt
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={s.card}>
+          <div style={s.cardLabel}>Vanligaste orsak</div>
+          {topOrsak && (
+            <>
+              <div style={{ ...s.cardValue, color: "#7c6af7", fontSize: 18 }}>{topOrsak[0]}</div>
+              <div style={s.cardSub}>
+                {topOrsak[1]} avvikelser · {Math.round(topOrsak[1] / totalAvv * 100)}% av totalt
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={s.card}>
+          <div style={s.cardLabel}>Aktiva streaks</div>
+          <div style={{ ...s.cardValue, color: "#f87171" }}>{activeStreaks.length}</div>
+          <div style={s.cardSub}>VNR med pågående avvikelse i ≥2 dagar i rad</div>
+        </div>
+
+        <div style={s.card}>
+          <div style={s.cardLabel}>Mest kritiska tidpunkt</div>
+          {hourStats.top ? (
+            <>
+              <div style={{ ...s.cardValue, color: "#f97316", fontFamily: "monospace" }}>
+                {String(hourStats.top[0]).padStart(2, "0")}–{String((parseInt(hourStats.top[0]) + 1) % 24).padStart(2, "0")}
+              </div>
+              <div style={s.cardSub}>
+                {hourStats.top[1]} avvikelser denna timme
+                {hourStats.totalSamples > 0 && ` · ${Math.round(hourStats.top[1] / hourStats.totalSamples * 100)}% av tidsstämplade`}
+              </div>
+            </>
+          ) : <div style={s.dim}>Ingen tidsdata</div>}
+        </div>
+
+        <div style={s.card}>
+          <div style={s.cardLabel}>{"< 30 min före avgång"}</div>
+          <div style={{ ...s.cardValue, color: criticalDeparture.length > 0 ? "#f87171" : "#4ade80" }}>
+            {criticalDeparture.reduce((sum, r) => sum + (r.count || 0), 0)}
+          </div>
+          <div style={s.cardSub}>Avvikelser kritiskt nära avgång</div>
+        </div>
+      </div>
+
+      {/* Åtgärdslista */}
+      {actions.length > 0 && (
+        <div style={s.panel}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={s.panelHead}>Att kolla upp</div>
+            <button
+              onClick={() => copyText(formatAllActions(), "all")}
+              style={{
+                background: copiedKey === "all" ? "#1e3a28" : "#1e1e2e",
+                color: copiedKey === "all" ? "#4ade80" : "#888",
+                border: "1px solid #2a2a3a", borderRadius: 6, padding: "5px 12px",
+                fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >{copiedKey === "all" ? "✓ Kopierat" : "📋 Kopiera alla"}</button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {actions.map((a, i) => (
+              <div key={i} style={{
+                display: "flex", gap: 10, alignItems: "flex-start",
+                background: "#0f0f18", borderRadius: 6, padding: "10px 12px",
+                borderLeft: `3px solid ${a.pri === "hög" ? "#f87171" : "#fbbf24"}`,
+              }}>
+                <span style={{
+                  fontSize: 10, color: a.pri === "hög" ? "#f87171" : "#fbbf24",
+                  fontWeight: 700, textTransform: "uppercase", letterSpacing: 1,
+                  minWidth: 50,
+                }}>{a.pri}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "#f0f0f5", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span>VNR <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>{a.vnr}</span></span>
+                    {a.location && (
+                      <span style={{
+                        background: "#1a2535", color: "#7cc4ff", fontFamily: "monospace",
+                        fontWeight: 700, fontSize: 12, borderRadius: 4, padding: "2px 8px",
+                      }}>📍 {a.location}</span>
+                    )}
+                    {a.kbana && (
+                      <span style={{ color: "#f97316", fontWeight: 700, fontSize: 11 }}>{a.kbana}</span>
+                    )}
+                  </div>
+                  <div style={{ color: "#c0c0d0", marginTop: 4, fontSize: 13 }}>{a.text}</div>
+                  {a.info && <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{a.info}</div>}
+                </div>
+                <button
+                  onClick={() => copyText(formatAction(a), i)}
+                  title="Kopiera den här åtgärden"
+                  style={{
+                    background: "none", color: copiedKey === i ? "#4ade80" : "#555",
+                    border: "none", cursor: "pointer", fontSize: 13, padding: "2px 4px",
+                    flexShrink: 0, marginTop: 1,
+                  }}
+                >{copiedKey === i ? "✓" : "📋"}</button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* ── Trend (all historik) ────────────────────────────── */}
-      <div style={s.sectionHdr}>Trend — all historik</div>
-      <div style={s.kpiGrid}>
-        {underStreak > 0 && (
-          <div style={{ ...s.kpi, borderColor: "#4ade8060" }}>
-            <div style={{ ...s.kpiVal, color: "#4ade80" }}>{underStreak}</div>
-            <div style={s.kpiLbl}>Dagar i rad under mål</div>
-          </div>
-        )}
-        {overStreak > 0 && (
-          <div style={{ ...s.kpi, borderColor: "#f8717160" }}>
-            <div style={{ ...s.kpiVal, color: "#f87171" }}>{overStreak}</div>
-            <div style={s.kpiLbl}>Dagar i rad ÖVER mål</div>
-          </div>
-        )}
-        <div style={s.kpi}>
-          <div style={{ ...s.kpiVal, color: "#4ade80" }}>{maxUnder}</div>
-          <div style={s.kpiLbl}>Längsta period under mål</div>
-        </div>
-        <div style={s.kpi}>
-          <div style={{ ...s.kpiVal, color: "#f87171" }}>{maxOver}</div>
-          <div style={s.kpiLbl}>Längsta period över mål</div>
-        </div>
-        {peak && (
-          <div style={s.kpi}>
-            <div style={{ ...s.kpiVal, color: "#7c6af7" }}>
-              {peak.showRange ? `${peak.hour}–${peak.nextHour}` : String(peak.hour)}
-            </div>
-            <div style={s.kpiLbl}>Peak-timme</div>
-            <div style={s.kpiSub}>{peak.count} avv i {periodLabel.toLowerCase()}</div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Återkommande VNR + Orsaker ──────────────────────── */}
-      <div style={s.sectionHdr}>{periodLabel} — detalj</div>
-      <div style={s.twoCol}>
+      {/* Återkommande VNR */}
+      {recurringAll.length > 0 && (
         <div style={s.panel}>
-          <div style={s.ph}>Återkommande VNR (≥ 2 datum)</div>
-          {recurring.length === 0
-            ? <div style={s.dim}>Inga återkommande i perioden.</div>
-            : recurring.map(({ vnr, days, totalCount, locs, kbana }) => (
-              <div key={vnr} style={s.recurRow}>
-                <div>
-                  <span style={s.vnrMono}>{vnr}</span>
-                  {kbana && <span style={s.kbanaTag}>{kbana}</span>}
-                  {locs[0] && <span style={s.dim}> {locs[0]}</span>}
-                </div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <span style={s.dim}>{days} dagar</span>
-                  <span style={{ fontFamily: "monospace", fontWeight: 700,
-                    color: days >= 5 ? "#f87171" : days >= 3 ? "#fbbf24" : "#f0f0f5" }}>
-                    ×{totalCount}
-                  </span>
-                </div>
-              </div>
-            ))
-          }
-        </div>
-
-        <div style={s.panel}>
-          <div style={s.ph}>Rotorsaksfördelning</div>
-          {orsakCount.map(([orsak, count]) => {
-            const pct    = totAvv > 0 ? Math.round(count / totAvv * 100) : 0;
-            const ansvar = ORSAK_ANSVAR[orsak];
-            return (
-              <div key={orsak} style={s.orsakRow}>
-                <div>
-                  <div style={{ fontSize: 12, color: "#c0c0d0" }}>{orsak}</div>
-                  {ansvar && ansvar !== "—" && <div style={{ fontSize: 10, color: "#60a5fa" }}>→ {ansvar}</div>}
-                </div>
-                <div style={s.barWrap}><div style={{ ...s.bar, width: `${pct}%` }} /></div>
-                <span style={{ fontFamily: "monospace", fontSize: 12, color: "#f0f0f5", minWidth: 28, textAlign: "right" }}>{count}</span>
-                <span style={{ fontSize: 11, color: "#555", minWidth: 32, textAlign: "right" }}>{pct}%</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── Bästa / sämsta dagar ────────────────────────────── */}
-      <div style={s.twoCol}>
-        <div style={s.panel}>
-          <div style={s.ph}>Bästa dagar (lägst promille)</div>
-          {filtDates
-            .map((d) => ({ datum: d, ...filtDayMap[d], prom: promille(filtDayMap[d].avv, filtDayMap[d].rader) }))
-            .filter((d) => d.prom !== null)
-            .sort((a, b) => a.prom - b.prom)
-            .slice(0, 5)
-            .map(({ datum, avv, prom }) => (
-              <div key={datum} style={s.trendRow}>
-                <span style={{ fontFamily: "monospace", color: "#8a8a9a", flex: 1 }}>{datum}</span>
-                <span style={{ fontFamily: "monospace", color: "#f0f0f5", minWidth: 32, textAlign: "right" }}>{avv}</span>
-                <span style={{ fontFamily: "monospace", color: "#4ade80", fontWeight: 700, minWidth: 72, textAlign: "right" }}>{fmtProm(prom)}</span>
+          <div style={s.panelHead}>Återkommande VNR ({recurringAll.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {recurringAll.slice(0, 20).map((v) => (
+              <div key={v.vnr} style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 80px 80px 60px 60px 1fr",
+                gap: 8, alignItems: "center",
+                background: v.active && v.streak >= 2 ? "#15100f" : "#0f0f18",
+                border: v.active && v.streak >= 3 ? "1px solid #7a3030" : "1px solid transparent",
+                borderRadius: 6, padding: "8px 12px", fontSize: 12,
+              }}>
+                <span style={{ fontFamily: "monospace", color: "#f0f0f5" }}>{v.vnr}</span>
+                {v.location && <span style={{ fontSize: 11, color: "#8a8a9a", fontFamily: "monospace" }}>{v.location}</span>}
+                <span style={{
+                  fontFamily: "monospace", fontWeight: 700,
+                  color: v.streak >= 3 ? "#f87171" : v.streak >= 2 ? "#fbbf24" : "#888",
+                }}>
+                  {v.streak} {v.streak === 1 ? "dag" : "dagar"}{v.active && v.streak >= 2 ? " ●" : ""}
+                </span>
+                <span style={{ color: "#888" }}>×{v.total}</span>
+                <Badge text={v.zon} />
+                <span style={{ color: "#555", fontSize: 11 }}>
+                  {v.orsak || "—"}
+                  {ORSAK_ANSVAR[v.orsak] && ORSAK_ANSVAR[v.orsak] !== "—" && (
+                    <span style={{ color: "#60a5fa", marginLeft: 6 }}>→ {ORSAK_ANSVAR[v.orsak]}</span>
+                  )}
+                </span>
               </div>
             ))}
+          </div>
+          {recurringAll.length > 20 && (
+            <div style={{ ...s.dim, marginTop: 8 }}>Visar 20 första av {recurringAll.length}</div>
+          )}
         </div>
-        <div style={s.panel}>
-          <div style={s.ph}>Sämsta dagar (högst promille)</div>
-          {filtDates
-            .map((d) => ({ datum: d, ...filtDayMap[d], prom: promille(filtDayMap[d].avv, filtDayMap[d].rader) }))
-            .filter((d) => d.prom !== null)
-            .sort((a, b) => b.prom - a.prom)
-            .slice(0, 5)
-            .map(({ datum, avv, prom }) => (
-              <div key={datum} style={s.trendRow}>
-                <span style={{ fontFamily: "monospace", color: "#8a8a9a", flex: 1 }}>{datum}</span>
-                <span style={{ fontFamily: "monospace", color: "#f0f0f5", minWidth: 32, textAlign: "right" }}>{avv}</span>
-                <span style={{ fontFamily: "monospace", color: goalColor(prom, goal), fontWeight: 700, minWidth: 72, textAlign: "right" }}>{fmtProm(prom)}</span>
-              </div>
-            ))}
-        </div>
-      </div>
-
+      )}
     </div>
   );
 }
 
-// ─── Stilar ───────────────────────────────────────────────────────────────────
-
 const s = {
-  wrap:        { padding: "16px 20px", fontFamily: "system-ui, sans-serif", background: "#0a0a0f", minHeight: "100%", color: "#f0f0f5" },
-  status:      { padding: 40, textAlign: "center", color: "#888" },
-  periodRow:   { display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" },
-  periodBtn:   { background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 20, padding: "5px 14px", fontSize: 12, color: "#666", cursor: "pointer", fontFamily: "inherit" },
-  periodActive:{ background: "#16162a", border: "1px solid #7c6af7", color: "#7c6af7", fontWeight: 700 },
-  sectionHdr:  { fontSize: 10, color: "#7c6af7", fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 10, marginTop: 4 },
-  briefRow:    { display: "flex", alignItems: "flex-start", gap: 10, background: "#13131c", border: "1px solid #1e1e2e", borderLeft: "3px solid", borderRadius: "0 6px 6px 0", padding: "10px 14px" },
-  briefText:   { fontSize: 13, color: "#d0d0e0", lineHeight: 1.5 },
-  typTag:      { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, border: "1px solid", borderRadius: 4, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 },
-  kpiGrid:     { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 },
-  kpi:         { background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: "14px 16px" },
-  kpiVal:      { fontSize: 28, fontWeight: 800, fontFamily: "monospace", marginBottom: 4 },
-  kpiLbl:      { fontSize: 10, color: "#555", textTransform: "uppercase", letterSpacing: 1 },
-  kpiSub:      { fontSize: 11, color: "#444", marginTop: 3 },
-  twoCol:      { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 },
-  panel:       { background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 8, padding: "14px 16px" },
-  ph:          { fontSize: 10, color: "#7c6af7", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 },
-  dim:         { fontSize: 11, color: "#666" },
-  recurRow:    { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #1a1a28" },
-  vnrMono:     { fontFamily: "monospace", fontSize: 12, color: "#f0f0f5", marginRight: 8 },
-  kbanaTag:    { background: "#2a1a0a", color: "#f97316", border: "1px solid #3a2a1a", borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 700, fontFamily: "monospace" },
-  orsakRow:    { display: "grid", gridTemplateColumns: "1fr 80px 32px 36px", gap: 6, alignItems: "center", marginBottom: 8 },
-  barWrap:     { background: "#1e1e2e", borderRadius: 3, height: 6, overflow: "hidden" },
-  bar:         { height: "100%", background: "#7c6af7", borderRadius: 3, transition: "width .3s" },
-  trendRow:    { display: "flex", gap: 6, alignItems: "center", padding: "4px 0", borderBottom: "1px solid #1a1a28", fontSize: 12 },
+  wrap:       { padding: "16px 20px", fontFamily: "system-ui, sans-serif", background: "#0a0a0f", minHeight: "100%", color: "#f0f0f5" },
+  status:     { padding: 40, textAlign: "center", color: "#888" },
+  empty:      { textAlign: "center", padding: "60px 0", color: "#444" },
+  filterRow:  { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 20 },
+  dim:        { fontSize: 12, color: "#555" },
+  sel:        { background: "#16161f", color: "#f0f0f5", border: "1px solid #2a2a3a", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer", outline: "none" },
+  cardGrid:   { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 },
+  card:       { background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20 },
+  cardLabel:  { fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 },
+  cardValue:  { fontSize: 28, fontWeight: 800, fontFamily: "monospace" },
+  cardSub:    { fontSize: 12, color: "#666", marginTop: 6 },
+  panel:      { background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20, marginBottom: 20 },
+  panelHead:  { fontSize: 11, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 14 },
 };

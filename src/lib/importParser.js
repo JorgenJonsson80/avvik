@@ -393,6 +393,24 @@ export async function readBackupFile(file) {
   return parseBackupFile(wb);
 }
 
+// ─── Whitelist för deviations-kolumner (skyddar mot skräpfält vid upsert) ────
+
+export const DEVIATION_COLUMNS = [
+  "datum", "vnr", "locations", "zon", "kbana", "route_code", "ship_to",
+  "avgangstid", "nasta_dag", "min_fore_avgang", "count", "after_hours",
+  "before_work", "hours", "times", "orsak", "kommentar",
+  "kontroll_scans", "kontroll_total", "user_id",
+];
+
+export function cleanDeviationRow(row, { keepId = false } = {}) {
+  const out = {};
+  for (const k of DEVIATION_COLUMNS) {
+    if (row[k] !== undefined) out[k] = row[k];
+  }
+  if (keepId && row.id) out.id = row.id;
+  return out;
+}
+
 // ─── Merge-logik ─────────────────────────────────────────────────────────────
 
 /**
