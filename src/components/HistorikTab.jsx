@@ -30,6 +30,7 @@ function exportToExcel(rows) {
 
 export function HistorikTab() {
   const { deviations, loading, error, updateOrsak, updateKommentar } = useDeviations();
+  const [filterDatum, setFilterDatum] = useState("");
   const [filterOrsak, setFilterOrsak] = useState("");
   const [filterZon, setFilterZon] = useState("");
   const [search, setSearch] = useState("");
@@ -39,10 +40,16 @@ export function HistorikTab() {
   const [detailDev, setDetailDev] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  const allaDatum = useMemo(
+    () => [...new Set(deviations.map((r) => String(r.datum).slice(0, 10)))].sort().reverse(),
+    [deviations]
+  );
+
   const filtered = useMemo(() => {
     let rows = deviations;
+    if (filterDatum) rows = rows.filter((r) => String(r.datum).slice(0, 10) === filterDatum);
     if (filterOrsak) rows = rows.filter((r) => r.orsak === filterOrsak);
-    if (filterZon) rows = rows.filter((r) => r.zon === filterZon);
+    if (filterZon)   rows = rows.filter((r) => r.zon === filterZon);
     if (search) {
       const q = search.toLowerCase();
       rows = rows.filter((r) =>
@@ -53,7 +60,7 @@ export function HistorikTab() {
       );
     }
     return rows;
-  }, [deviations, filterOrsak, filterZon, search]);
+  }, [deviations, filterDatum, filterOrsak, filterZon, search]);
 
   const byDate = useMemo(() => {
     const map = {};
@@ -100,6 +107,10 @@ export function HistorikTab() {
     <div style={s.wrap}>
       {/* Filter-rad */}
       <div style={s.filters}>
+        <select value={filterDatum} onChange={(e) => setFilterDatum(e.target.value)} style={s.filterSelect}>
+          <option value="">Alla datum</option>
+          {allaDatum.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
         <input
           placeholder="Sök VNR, plats, tur, kommentar…"
           value={search}
