@@ -19,9 +19,11 @@ export function useRader() {
   useEffect(() => { fetch(); }, [fetch]);
 
   async function upsertRader(row) {
+    const d = String(row?.datum || "").slice(0, 10);
+    if (!d) throw new Error("Kan inte spara rader utan datum.");
     const { error } = await supabase
       .from("rader")
-      .upsert(row, { onConflict: "user_id,datum" });
+      .upsert({ ...row, datum: d }, { onConflict: "user_id,datum" });
     if (error) throw new Error(error.message);
     await fetch();
   }

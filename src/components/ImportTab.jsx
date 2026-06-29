@@ -38,10 +38,14 @@ export function ImportTab() {
     try {
       const { records, datum: detDatum, error } = await readX08File(file);
       if (error) { setSaveError(error); return; }
-      const useDatum = detDatum || datum;
-      if (useDatum && !datum) setDatum(useDatum);
-      const existing = deviations.filter((d) => d.datum === (useDatum || datum));
-      const merged   = mergeDeviations(existing, records.map((r) => ({ ...r, datum: useDatum || datum })));
+      const useDatum = (detDatum || datum || "").slice(0, 10);
+      if (!useDatum) {
+        setSaveError("Inget datum hittades i filen. Ange datum i fältet ovan innan du importerar.");
+        return;
+      }
+      if (!datum) setDatum(useDatum);
+      const existing = deviations.filter((d) => d.datum === useDatum);
+      const merged   = mergeDeviations(existing, records.map((r) => ({ ...r, datum: useDatum })));
       merged.sort((a, b) => (a.first_time || "99:99").localeCompare(b.first_time || "99:99"));
       setGroups(merged);
       const updated = merged.filter((g) => g.alreadyExists).length;
@@ -60,8 +64,12 @@ export function ImportTab() {
     try {
       const { rader, datum: detDatum, error } = await readRaderFile(file);
       if (error) { setSaveError(error); return; }
-      const useDatum = detDatum || datum;
-      if (useDatum && !datum) setDatum(useDatum);
+      const useDatum = (detDatum || datum || "").slice(0, 10);
+      if (!useDatum) {
+        setSaveError("Inget datum hittades i rader-filen. Ange datum i fältet ovan innan du importerar rader.");
+        return;
+      }
+      if (!datum) setDatum(useDatum);
       await upsertRader({ datum: useDatum, ...rader });
       const total = rader.zon1 + rader.zon2 + rader.zon3;
       setRaderInfo({ datum: useDatum, total, ...rader });
