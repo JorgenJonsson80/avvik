@@ -272,9 +272,11 @@ export function parseRader(workbook) {
   let hIdx = -1;
   for (let i = 0; i < rows.length; i++) {
     const cells = rows[i].map((c) => String(c ?? "").toLowerCase().trim());
-    if (cells.some((c) => c.includes("station")) && cells.some((c) => c.includes("rader"))) {
-      hIdx = i; break;
-    }
+    // Kräv att "station" och "rader" är SEPARATA celler — inte substrängar av samma cell
+    // (t.ex. "RPT_Rader-Backar per Station" ska inte matcha)
+    const hasStation = cells.some((c) => c === "station");
+    const hasRader   = cells.some((c) => c === "rader" || c === "antal");
+    if (hasStation && hasRader) { hIdx = i; break; }
   }
   if (hIdx === -1) return { rader: null, datum: null, error: "Hittade ingen station/rader-rubrikrad." };
 
@@ -288,9 +290,18 @@ export function parseRader(workbook) {
   const dataRows = rows.slice(hIdx + 1).filter((r) => String(r[stationCol] ?? "").trim() !== "");
   if (dataRows.length === 0) return { rader: null, datum: null, error: "Inga datarader hittades." };
 
+  // Parsa datum — hanterar YYYY-MM-DD, YYYYMMDD (JDE-format) och Excel-serienummer
+  const parseDatumCell = (v) => {
+    if (!v && v !== 0) return null;
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+    return excelDateToISO(v);
+  };
+
   let detDatum = null;
   if (datumCol !== -1 && dataRows[0]) {
-    detDatum = excelDateToISO(dataRows[0][datumCol]);
+    detDatum = parseDatumCell(dataRows[0][datumCol]);
   }
 
   const zonRader = { zon1: 0, zon2: 0, zon3: 0 };
