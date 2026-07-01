@@ -72,13 +72,30 @@ function colIdx(headers, ...candidates) {
   return -1;
 }
 
+// JDE-exporter slår ofta ihop celler (merged cells) i kolumner som upprepar
+// samma värde för flera rader i rad (t.ex. artikelnummer vid flera scanningar
+// efter varandra). sheet_to_json fyller INTE i det — bara toppcellen i
+// sammanslagningen får ett värde, resten blir tomma strängar. Utan denna
+// utfyllnad tolkas de tomma raderna som saknad VNR och filtreras bort tyst,
+// vilket ger för lågt antal (×count) för just de VNR som scannats flest gånger.
+function fillMergedCells(sheet, rows) {
+  const merges = sheet["!merges"] || [];
+  for (const m of merges) {
+    const topVal = rows[m.s.r]?.[m.s.c];
+    for (let r = m.s.r; r <= m.e.r; r++) {
+      if (rows[r]) rows[r][m.s.c] = topVal;
+    }
+  }
+  return rows;
+}
+
 /**
  * Parsar ett X08-Excel-WorkBook till en lista av deviation-records med events[].
  * Returnerar { records, datum, error }.
  */
 export function parseX08(workbook) {
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  const rows = fillMergedCells(sheet, XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }));
 
   const found = findHeader(rows);
   if (!found) return { records: [], datum: null, error: "Hittade ingen rubrikrad med kända kolumner." };
@@ -267,7 +284,7 @@ export async function readX08File(file) {
  */
 export function parseRader(workbook) {
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows  = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  const rows  = fillMergedCells(sheet, XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }));
 
   let hIdx = -1;
   for (let i = 0; i < rows.length; i++) {
