@@ -5,6 +5,7 @@ import { ImportTab }   from "./components/ImportTab.jsx";
 import { StatistikTab } from "./components/StatistikTab.jsx";
 import { VeckaTab }    from "./components/VeckaTab.jsx";
 import { AnalysTab }   from "./components/AnalysTab.jsx";
+import { AtgarderTab } from "./components/AtgarderTab.jsx";
 
 function Login() {
   const [email, setEmail]       = useState("");
@@ -75,7 +76,7 @@ function Login() {
   );
 }
 
-const TABS = ["Importera", "Historik", "Statistik", "Vecka", "Analys"];
+const TABS = ["Importera", "Historik", "Statistik", "Vecka", "Analys", "Åtgärder"];
 
 function Shell({ session }) {
   const [tab, setTab]           = useState("Historik");
@@ -122,6 +123,7 @@ function Shell({ session }) {
         {tab === "Statistik" && <StatistikTab />}
         {tab === "Vecka"     && <VeckaTab />}
         {tab === "Analys"    && <AnalysTab />}
+        {tab === "Åtgärder"  && <AtgarderTab />}
       </main>
     </div>
   );
