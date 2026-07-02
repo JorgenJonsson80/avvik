@@ -10,8 +10,7 @@ import { AtgarderTab } from "./components/AtgarderTab.jsx";
 function Login() {
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm]   = useState("");
-  const [mode, setMode]         = useState("login"); // "login" | "signup" | "magic"
+  const [mode, setMode]         = useState("login"); // "login" | "magic"
   const [msg, setMsg]           = useState("");
   const [msgOk, setMsgOk]       = useState(false);
   const [loading, setLoading]   = useState(false);
@@ -24,16 +23,11 @@ function Login() {
     setMsg(""); setMsgOk(false);
 
     if (mode === "magic") {
-      const { error } = await supabase.auth.signInWithOtp({ email });
+      // shouldCreateUser: false — magisk länk får bara logga in befintliga
+      // konton, aldrig skapa nya. Kontot skapas av admin via Supabase Dashboard.
+      const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
       if (error) setMsg("Fel: " + error.message);
       else { setMsg("Kolla din e-post för inloggningslänken."); setMsgOk(true); }
-
-    } else if (mode === "signup") {
-      if (password !== confirm) { setMsg("Lösenorden matchar inte."); setLoading(false); return; }
-      if (password.length < 6)  { setMsg("Lösenordet måste vara minst 6 tecken."); setLoading(false); return; }
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) setMsg("Fel: " + error.message);
-      else { setMsg("Konto skapat! Kolla din e-post för att bekräfta, sedan kan du logga in."); setMsgOk(true); }
 
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -44,33 +38,30 @@ function Login() {
 
   const btnLabel = loading ? "Väntar…"
     : mode === "magic"  ? "Skicka magisk länk"
-    : mode === "signup" ? "Skapa konto"
     : "Logga in";
 
   return (
     <div style={styles.center}>
       <div style={styles.card}>
         <h1 style={styles.title}>AvvikelseLive</h1>
-        <p style={styles.sub}>{mode === "signup" ? "Skapa nytt konto" : "Logga in för att fortsätta"}</p>
+        <p style={styles.sub}>Logga in för att fortsätta</p>
         <form onSubmit={handleSubmit} style={styles.form}>
           <input style={styles.input} type="email" placeholder="E-postadress"
             value={email} onChange={(e) => setEmail(e.target.value)} required />
-          {(mode === "login" || mode === "signup") && (
+          {mode === "login" && (
             <input style={styles.input} type="password" placeholder="Lösenord"
               value={password} onChange={(e) => setPassword(e.target.value)} required />
-          )}
-          {mode === "signup" && (
-            <input style={styles.input} type="password" placeholder="Bekräfta lösenord"
-              value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
           )}
           <button style={styles.btn} type="submit" disabled={loading}>{btnLabel}</button>
         </form>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10 }}>
-          {mode !== "login"  && <button style={styles.link} onClick={() => switchMode("login")}>Logga in med lösenord</button>}
-          {mode !== "signup" && <button style={styles.link} onClick={() => switchMode("signup")}>Skapa nytt konto</button>}
-          {mode !== "magic"  && <button style={styles.link} onClick={() => switchMode("magic")}>Skicka magisk länk</button>}
+          {mode !== "login" && <button style={styles.link} onClick={() => switchMode("login")}>Logga in med lösenord</button>}
+          {mode !== "magic" && <button style={styles.link} onClick={() => switchMode("magic")}>Skicka magisk länk</button>}
         </div>
         {msg && <p style={{ ...styles.msg, color: msgOk ? "#166534" : "#c00" }}>{msg}</p>}
+        <p style={{ fontSize: 11, color: "#999", marginTop: 14 }}>
+          Inget konto? Be en administratör bjuda in dig via Supabase Dashboard.
+        </p>
       </div>
     </div>
   );
