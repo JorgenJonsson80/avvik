@@ -10,35 +10,17 @@ import { AtgarderTab } from "./components/AtgarderTab.jsx";
 function Login() {
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode]         = useState("login"); // "login" | "magic"
   const [msg, setMsg]           = useState("");
-  const [msgOk, setMsgOk]       = useState(false);
   const [loading, setLoading]   = useState(false);
-
-  function switchMode(m) { setMode(m); setMsg(""); setMsgOk(false); }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
-    setMsg(""); setMsgOk(false);
-
-    if (mode === "magic") {
-      // shouldCreateUser: false — magisk länk får bara logga in befintliga
-      // konton, aldrig skapa nya. Kontot skapas av admin via Supabase Dashboard.
-      const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-      if (error) setMsg("Fel: " + error.message);
-      else { setMsg("Kolla din e-post för inloggningslänken."); setMsgOk(true); }
-
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setMsg("Fel: " + error.message);
-    }
+    setMsg("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setMsg("Fel: " + error.message);
     setLoading(false);
   }
-
-  const btnLabel = loading ? "Väntar…"
-    : mode === "magic"  ? "Skicka magisk länk"
-    : "Logga in";
 
   return (
     <div style={styles.center}>
@@ -48,17 +30,11 @@ function Login() {
         <form onSubmit={handleSubmit} style={styles.form}>
           <input style={styles.input} type="email" placeholder="E-postadress"
             value={email} onChange={(e) => setEmail(e.target.value)} required />
-          {mode === "login" && (
-            <input style={styles.input} type="password" placeholder="Lösenord"
-              value={password} onChange={(e) => setPassword(e.target.value)} required />
-          )}
-          <button style={styles.btn} type="submit" disabled={loading}>{btnLabel}</button>
+          <input style={styles.input} type="password" placeholder="Lösenord"
+            value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <button style={styles.btn} type="submit" disabled={loading}>{loading ? "Väntar…" : "Logga in"}</button>
         </form>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10 }}>
-          {mode !== "login" && <button style={styles.link} onClick={() => switchMode("login")}>Logga in med lösenord</button>}
-          {mode !== "magic" && <button style={styles.link} onClick={() => switchMode("magic")}>Skicka magisk länk</button>}
-        </div>
-        {msg && <p style={{ ...styles.msg, color: msgOk ? "#166534" : "#c00" }}>{msg}</p>}
+        {msg && <p style={{ ...styles.msg, color: "#c00" }}>{msg}</p>}
         <p style={{ fontSize: 11, color: "#999", marginTop: 14 }}>
           Inget konto? Be en administratör bjuda in dig via Supabase Dashboard.
         </p>
