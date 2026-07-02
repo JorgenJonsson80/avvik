@@ -62,7 +62,7 @@ export function useDeviations({ datum } = {}) {
   async function upsertMany(rows) {
     const { error: err } = await supabase
       .from("deviations")
-      .upsert(rows, { onConflict: "user_id,datum,vnr" });
+      .upsert(rows, { onConflict: "org_id,datum,vnr" });
     if (err) throw new Error(err.message);
     await fetch();
   }

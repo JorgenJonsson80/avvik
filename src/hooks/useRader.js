@@ -23,7 +23,7 @@ export function useRader() {
     if (!d) throw new Error("Kan inte spara rader utan datum.");
     const { error } = await supabase
       .from("rader")
-      .upsert({ ...row, datum: d }, { onConflict: "user_id,datum" });
+      .upsert({ ...row, datum: d }, { onConflict: "org_id,datum" });
     if (error) throw new Error(error.message);
     await fetch();
   }

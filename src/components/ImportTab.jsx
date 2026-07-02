@@ -100,7 +100,7 @@ export function ImportTab() {
 
       const { data: upserted, error: devErr } = await supabase
         .from("deviations")
-        .upsert(rows, { onConflict: "user_id,datum,vnr" })
+        .upsert(rows, { onConflict: "org_id,datum,vnr" })
         .select("id, vnr");
       if (devErr) throw new Error(devErr.message);
 
@@ -199,7 +199,7 @@ export function ImportTab() {
             kommentar: prev?.kommentar        || r.kommentar || "",
           }, { keepId: true });
         });
-        await batchWrite(rows, { onConflict: "user_id,datum,vnr" });
+        await batchWrite(rows, { onConflict: "org_id,datum,vnr" });
         const nytt = records.filter((r) => !byKey.has(`${r.datum}|${r.vnr}`)).length;
         const upd  = records.length - nytt;
         setBackupStatus({ ok: true, msg: `Lade till ${nytt} nya poster, uppdaterade ${upd} befintliga.` });

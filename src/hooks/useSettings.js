@@ -22,7 +22,7 @@ export function useSettings() {
     const updated = { ...settings, ...patch };
     const { error } = await supabase
       .from("settings")
-      .upsert(updated, { onConflict: "user_id" });
+      .upsert(updated, { onConflict: "org_id" });
     if (error) throw new Error(error.message);
     setSettings(updated);
   }
