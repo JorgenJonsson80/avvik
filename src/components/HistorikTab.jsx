@@ -203,13 +203,15 @@ export function HistorikTab() {
 
                       {/* Åtgärder */}
                       <div style={s.actions}>
-                        {dev.kontroll_scans > 0 && (
+                        {dev.count > 1 && (
                           <button
                             onClick={() => setDetailDev(dev)}
                             style={s.btnScans}
                             title="Visa per-scan-detaljer"
                           >
-                            ⊞ {dev.kontroll_scans}/{dev.kontroll_total ?? dev.count}
+                            ⊞ {dev.kontroll_scans > 0
+                              ? `${dev.kontroll_scans}/${dev.kontroll_total ?? dev.count}`
+                              : `${dev.count} scans`}
                           </button>
                         )}
                         <button

@@ -82,6 +82,11 @@ describe("scanOrsak — prioritet tid > kontroll", () => {
     expect(scanOrsak(10, 11, false, "Saldofel")).toBe("Saldofel");
     expect(scanOrsak(10, 11, false, "")).toBe("");
   });
+  it("Loax/KG kyl → alltid Övrigt, vinner även över Före 08:00 och kontroll", () => {
+    expect(scanOrsak(7, 0, true, "", "Loax")).toBe("Övrigt");
+    expect(scanOrsak(16, 0, false, "", "KG kyl")).toBe("Övrigt");
+    expect(scanOrsak(10, 0, true, "Saldofel", "Loax")).toBe("Övrigt");
+  });
 });
 
 describe("kontrollStatsByVnr", () => {

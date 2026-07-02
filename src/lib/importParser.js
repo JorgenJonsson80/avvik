@@ -217,15 +217,16 @@ export function parseX08(workbook) {
     const st    = kStats.get(vnr);
 
     const autoOrsak =
+      zon === "Loax" || zon === "KG kyl" ? "Övrigt" :
       e.beforeWork === e.count ? "Före 08:00" :
       e.afterHours === e.count ? "Utanför min arbetstid" : "";
 
-    // Per-scan orsak: tid (Före 08/Utanför arbetstid) > kontroll > autoOrsak
+    // Per-scan orsak: Loax/KG kyl > tid (Före 08/Utanför arbetstid) > kontroll > autoOrsak
     for (const ev of e.events) {
       ev.in_kontroll = kontrollKey.get(`${vnr}|${ev.tid}`) === true;
       let h = null, m = 0;
       if (ev.tid) { const p = ev.tid.split(":").map(Number); h = p[0]; m = p[1]; }
-      ev.orsak = scanOrsak(h, m, ev.in_kontroll, autoOrsak);
+      ev.orsak = scanOrsak(h, m, ev.in_kontroll, autoOrsak, zon);
     }
 
     // Dagsorsak: autoOrsak om satt, annars dominant scan-orsak

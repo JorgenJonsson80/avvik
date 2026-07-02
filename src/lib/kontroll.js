@@ -44,8 +44,10 @@ export function kontrollStatsByVnr(markedScans) {
   return stats;
 }
 
-// Prioritet: tid (Före 08:00 / Utanför arbetstid) > kontroll > dagsorsak
-export function scanOrsak(h, m, inKontroll, dayOrsak) {
+// Prioritet: Loax/KG kyl (saknar rader-underlag, tidsregler blir missvisande) >
+// tid (Före 08:00 / Utanför arbetstid) > kontroll > dagsorsak
+export function scanOrsak(h, m, inKontroll, dayOrsak, zon) {
+  if (zon === "Loax" || zon === "KG kyl") return "Övrigt";
   if (h !== null && h !== undefined) {
     if (h < 8) return "Före 08:00";
     if (h > 15 || (h === 15 && m >= 30)) return "Utanför min arbetstid";
