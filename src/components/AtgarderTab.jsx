@@ -14,8 +14,10 @@
 import { useState, useMemo } from 'react';
 import { useActions } from '../hooks/useActions.js';
 import { useDeviations } from '../hooks/useDeviations.js';
+import { useSettings } from '../hooks/useSettings.js';
 import { withEffects, EFFECT_META } from '../lib/actionEffect.js';
 import { classifyLocation } from '../lib/classify.js';
+import { fmtKr } from '../lib/dates.js';
 
 const card = {
   background: '#13131c',
@@ -60,6 +62,8 @@ function computeRecurring(deviations) {
 export function AtgarderTab() {
   const { deviations: data } = useDeviations();
   const { actions, loading, addAction, deleteAction } = useActions();
+  const { settings } = useSettings();
+  const cost = parseFloat(settings.cost) || 63;
   const [form, setForm] = useState(null); // { vnr, location, kbana } när man loggar
   const [text, setText] = useState('');
   const [av, setAv] = useState('');
@@ -195,6 +199,12 @@ export function AtgarderTab() {
                       {a.effect.deltaPct !== null && (
                         <> ({a.effect.deltaPct > 0 ? '+' : ''}{Math.round(a.effect.deltaPct)}%)</>
                       )}
+                    </div>
+                  )}
+                  {(a.effect.status === 'improved' || a.effect.status === 'worse') && (
+                    <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2, color: m.color }}>
+                      {-a.effect.deltaPerDay > 0 ? 'Sparar ' : 'Kostar '}
+                      {fmtKr(Math.abs(a.effect.deltaPerDay) * cost)}/dag
                     </div>
                   )}
                   <div style={{ fontSize: 10, color: '#444', marginTop: 1 }}>
