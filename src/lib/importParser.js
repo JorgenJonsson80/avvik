@@ -422,6 +422,35 @@ export async function readBackupFile(file) {
   return parseBackupFile(wb);
 }
 
+// ─── Auto-detektering av filtyp ──────────────────────────────────────────────
+
+/**
+ * Läser en fil och returnerar 'x08' | 'rader' | 'backup'.
+ * Används för att låta användaren bara dra in en fil utan att välja typ manuellt.
+ */
+export async function detectFileType(file) {
+  const buf = await file.arrayBuffer();
+  const wb  = XLSX.read(buf, { type: "array" });
+  const norm = (s) => String(s).normalize("NFC").toLowerCase().replace(/\s+/g, "");
+
+  // Backup: har Rådata- eller Per avvikelse-flik
+  const backupNames = ["rådata", "radata", "peravvikelse", "per avvikelse"];
+  if (wb.SheetNames.some((s) => backupNames.includes(norm(s)))) return "backup";
+
+  // Rader: någon flik har rubrikrad där "station" och "rader"/"antal" är separata celler
+  for (const name of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "" });
+    for (const row of rows) {
+      const cells = row.map((c) => String(c ?? "").toLowerCase().trim());
+      if (cells.some((c) => c === "station") && cells.some((c) => c === "rader" || c === "antal")) {
+        return "rader";
+      }
+    }
+  }
+
+  return "x08";
+}
+
 // ─── Whitelist för deviations-kolumner (skyddar mot skräpfält vid upsert) ────
 
 export const DEVIATION_COLUMNS = [
