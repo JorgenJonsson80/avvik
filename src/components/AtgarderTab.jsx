@@ -67,8 +67,17 @@ export function AtgarderTab() {
   const [form, setForm] = useState(null); // { vnr, location, kbana } när man loggar
   const [text, setText] = useState('');
   const [av, setAv] = useState('');
+  const [manualVnr, setManualVnr] = useState('');
 
   const today = new Date().toISOString().slice(0, 10);
+
+  function openManual() {
+    const vnr = manualVnr.trim().toUpperCase();
+    if (!vnr) return;
+    const match = data.find((d) => d.vnr === vnr);
+    setForm({ vnr, location: match?.locations?.[0] || '', kbana: match?.kbana || '' });
+    setText(''); setAv('');
+  }
 
   // Åtgärder berikade med effekt (före/efter).
   const withEff = useMemo(() => withEffects(actions, data), [actions, data]);
@@ -97,11 +106,32 @@ export function AtgarderTab() {
 
   return (
     <div>
-      <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
-        Logga vad du gjort åt en återkommande VNR. Appen mäter själv om avvikelserna
-        gick ner efteråt — <span style={{ color: '#4ade80' }}>grönt</span> = hjälpte,{' '}
+      <div style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
+        Logga vad du gjort åt en VNR. Appen mäter om avvikelserna gick ner efteråt —{' '}
+        <span style={{ color: '#4ade80' }}>grönt</span> = hjälpte,{' '}
         <span style={{ color: '#f97316' }}>orange</span> = ingen effekt.
       </div>
+
+      {/* Manuell loggning — ange valfritt VNR */}
+      {!form && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            placeholder="Ange VNR…"
+            value={manualVnr}
+            onChange={(e) => setManualVnr(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && openManual()}
+            style={{ ...input, width: 160, textTransform: 'uppercase' }}
+          />
+          <button
+            onClick={openManual}
+            disabled={!manualVnr.trim()}
+            style={{ ...input, background: manualVnr.trim() ? '#7c6af7' : '#1a1a2e', border: 'none', cursor: manualVnr.trim() ? 'pointer' : 'default', fontWeight: 700, color: '#fff' }}
+          >
+            + Logga åtgärd
+          </button>
+          <span style={{ fontSize: 11, color: '#444' }}>— eller välj ur listan nedan</span>
+        </div>
+      )}
 
       {/* Lägg-till-formulär (visas när man valt en VNR) */}
       {form && (
