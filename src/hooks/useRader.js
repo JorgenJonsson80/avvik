@@ -18,15 +18,18 @@ export function useRader() {
 
   useEffect(() => { fetch(); }, [fetch]);
 
-  async function upsertRader(row) {
-    const d = String(row?.datum || "").slice(0, 10);
-    if (!d) throw new Error("Kan inte spara rader utan datum.");
-    const { error } = await supabase
-      .from("rader")
-      .upsert({ ...row, datum: d }, { onConflict: "org_id,datum" });
-    if (error) throw new Error(error.message);
-    await fetch();
-  }
+async function upsertRader(row) {
+  const d = String(row?.datum || "").slice(0, 10);
+  if (!d) throw new Error("Kan inte spara rader utan datum.");
+  // Strippa DB-genererade kolumner — annars följer de med via spread
+  // när anroparen skickar in en tidigare hämtad rad.
+  const { id, user_id, created_at, updated_at, ...rest } = row;
+  const { error } = await supabase
+    .from("rader")
+    .upsert({ ...rest, datum: d }, { onConflict: "org_id,datum" });
+  if (error) throw new Error(error.message);
+  await fetch();
+}
 
   function getRaderForDatum(datum) {
     const key = String(datum).slice(0, 10);
