@@ -488,7 +488,6 @@ export function mergeDeviations(existing, incoming) {
     const keepOrsak = prev.orsak && prev.orsak !== "Okänd";
     return {
       ...rec,
-      id:         prev.id,
       orsak:      keepOrsak ? prev.orsak      : (rec.orsak || prev.orsak || ""),
       kommentar:  prev.kommentar || rec.kommentar,
       alreadyExists: true,
