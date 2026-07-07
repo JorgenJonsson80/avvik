@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Mörk bakgrund med rundade hörn -->
+  <rect width="32" height="32" rx="7" fill="#0d0d1a"/>
+
+  <!-- Staplar: normal nivå -->
+  <rect x="3"  y="20" width="5" height="9"  rx="1.5" fill="#2a2a5a"/>
+  <rect x="10" y="14" width="5" height="15" rx="1.5" fill="#2a2a5a"/>
+  <rect x="17" y="17" width="5" height="12" rx="1.5" fill="#2a2a5a"/>
+
+  <!-- Avvikande stapel — lila, sticker ut -->
+  <rect x="24" y="5"  width="5" height="24" rx="1.5" fill="#7c6af7"/>
+
+  <!-- Röd varningspunkt på avvikelsen -->
+  <circle cx="26.5" cy="4" r="3.5" fill="#f87171"/>
+  <text x="26.5" y="5.5" text-anchor="middle" font-size="4.5" font-family="system-ui" font-weight="900" fill="#fff">!</text>
+</svg>
