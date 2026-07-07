@@ -16,6 +16,7 @@ import { useDeviations } from "../hooks/useDeviations.js";
 import { orsakBreakdown } from "../lib/orsak.js";
 import { classifyLocation } from "../lib/classify.js";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
+import { LoggaAtgardModal } from "./shared/LoggaAtgardModal.jsx";
 
 function Badge({ text }) {
   const colors = {
@@ -35,7 +36,8 @@ function Badge({ text }) {
 export function AnalysTab() {
   const { deviations, loading } = useDeviations();
   const [filterDagar, setFilterDagar] = useState("30");
-  const [copiedKey, setCopiedKey] = useState(null); // index eller "all" — visar "✓ Kopierat"
+  const [copiedKey, setCopiedKey] = useState(null);
+  const [atgardVnr, setAtgardVnr] = useState(null); // { vnr, location, kbana }
 
   const copyText = (text, key) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -409,15 +411,18 @@ export function AnalysTab() {
                   <div style={{ color: "#c0c0d0", marginTop: 4, fontSize: 13 }}>{a.text}</div>
                   {a.info && <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{a.info}</div>}
                 </div>
-                <button
-                  onClick={() => copyText(formatAction(a), i)}
-                  title="Kopiera den här åtgärden"
-                  style={{
-                    background: "none", color: copiedKey === i ? "#4ade80" : "#555",
-                    border: "none", cursor: "pointer", fontSize: 13, padding: "2px 4px",
-                    flexShrink: 0, marginTop: 1,
-                  }}
-                >{copiedKey === i ? "✓" : "📋"}</button>
+                <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 1 }}>
+                  <button
+                    onClick={() => setAtgardVnr({ vnr: a.vnr, location: a.location, kbana: a.kbana })}
+                    title="Logga åtgärd"
+                    style={{ background: "none", color: "#7c6af7", border: "none", cursor: "pointer", fontSize: 13, padding: "2px 4px" }}
+                  >⚡</button>
+                  <button
+                    onClick={() => copyText(formatAction(a), i)}
+                    title="Kopiera den här åtgärden"
+                    style={{ background: "none", color: copiedKey === i ? "#4ade80" : "#555", border: "none", cursor: "pointer", fontSize: 13, padding: "2px 4px" }}
+                  >{copiedKey === i ? "✓" : "📋"}</button>
+                </div>
               </div>
             ))}
           </div>
@@ -432,7 +437,7 @@ export function AnalysTab() {
             {recurringAll.slice(0, 20).map((v) => (
               <div key={v.vnr} style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 80px 80px 60px 60px 1fr",
+                gridTemplateColumns: "1fr 80px 80px 60px 60px 1fr 28px",
                 gap: 8, alignItems: "center",
                 background: v.active && v.streak >= 2 ? "#15100f" : "#0f0f18",
                 border: v.active && v.streak >= 3 ? "1px solid #7a3030" : "1px solid transparent",
@@ -454,6 +459,11 @@ export function AnalysTab() {
                     <span style={{ color: "#60a5fa", marginLeft: 6 }}>→ {ORSAK_ANSVAR[v.orsak]}</span>
                   )}
                 </span>
+                <button
+                  onClick={() => setAtgardVnr({ vnr: v.vnr, location: v.location, kbana: v.kbana })}
+                  title="Logga åtgärd"
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#7c6af7", padding: 0 }}
+                >⚡</button>
               </div>
             ))}
           </div>
@@ -461,6 +471,15 @@ export function AnalysTab() {
             <div style={{ ...s.dim, marginTop: 8 }}>Visar 20 första av {recurringAll.length}</div>
           )}
         </div>
+      )}
+
+      {atgardVnr && (
+        <LoggaAtgardModal
+          vnr={atgardVnr.vnr}
+          location={atgardVnr.location}
+          kbana={atgardVnr.kbana}
+          onClose={() => setAtgardVnr(null)}
+        />
       )}
     </div>
   );

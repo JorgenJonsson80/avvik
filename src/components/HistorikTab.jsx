@@ -1,32 +1,11 @@
 import { useState, useMemo } from "react";
-import * as XLSX from "xlsx";
 import { useDeviations } from "../hooks/useDeviations.js";
 import { ScanDetailModal } from "./shared/ScanDetailModal.jsx";
 import { OrsaksSelect } from "./shared/OrsaksSelect.jsx";
+import { LoggaAtgardModal } from "./shared/LoggaAtgardModal.jsx";
 import { ORSAKER, ORSAK_ANSVAR } from "../lib/causes.js";
 import { formatMinBefore } from "../lib/routes.js";
-
-function exportToExcel(rows) {
-  const data = rows.map((r) => ({
-    Datum:              r.datum,
-    VNR:                r.vnr,
-    Lagerplats:         (r.locations || []).join(", "),
-    Zon:                r.zon || "",
-    "K-bana":           r.kbana || "",
-    Tur:                r.route_code || "",
-    Avgångstid:         r.avgangstid || "",
-    "Min före avg":     r.min_fore_avgang ?? "",
-    "Nästa dag":        r.nasta_dag ? "Ja" : "Nej",
-    Antal:              r.count,
-    Orsak:              r.orsak || "",
-    Kommentar:          r.kommentar || "",
-    "Kontroll-scannar": r.kontroll_scans || 0,
-  }));
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Avvikelser");
-  XLSX.writeFile(wb, `avvikelser_${new Date().toISOString().slice(0, 10)}.xlsx`);
-}
+import { exportDeviationsToExcel } from "../lib/exportExcel.js";
 
 export function HistorikTab() {
   const { deviations, loading, error, updateOrsak, updateKommentar } = useDeviations();
@@ -38,6 +17,7 @@ export function HistorikTab() {
   const [editOrsak, setEditOrsak] = useState("");
   const [editKommentar, setEditKommentar] = useState("");
   const [detailDev, setDetailDev] = useState(null);
+  const [atgardDev, setAtgardDev] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const allaDatum = useMemo(
@@ -129,7 +109,7 @@ export function HistorikTab() {
         </select>
         <span style={s.count}>{filtered.length} poster</span>
         <button
-          onClick={() => exportToExcel(filtered)}
+          onClick={() => exportDeviationsToExcel(filtered)}
           disabled={filtered.length === 0}
           style={{ ...s.filterSelect, background: "#1a1a2e", color: filtered.length > 0 ? "#7c6af7" : "#333", border: "1px solid #2a2a4a", cursor: filtered.length > 0 ? "pointer" : "default", fontWeight: 600 }}
         >
@@ -215,6 +195,13 @@ export function HistorikTab() {
                           </button>
                         )}
                         <button
+                          onClick={() => setAtgardDev(dev)}
+                          style={s.btnAtgard}
+                          title="Logga åtgärd"
+                        >
+                          ⚡
+                        </button>
+                        <button
                           onClick={() => isEditing ? setEditId(null) : startEdit(dev)}
                           style={{ ...s.btnEdit, color: isEditing ? "#7c6af7" : "#444" }}
                           title="Redigera orsak och kommentar"
@@ -258,6 +245,14 @@ export function HistorikTab() {
           onSave={handleScanSave}
         />
       )}
+      {atgardDev && (
+        <LoggaAtgardModal
+          vnr={atgardDev.vnr}
+          location={atgardDev.locations?.[0]}
+          kbana={atgardDev.kbana}
+          onClose={() => setAtgardDev(null)}
+        />
+      )}
     </div>
   );
 }
@@ -290,8 +285,9 @@ const s = {
   orsak: { fontSize: 11 },
   ansvar: { color: "#60a5fa", fontSize: 10 },
   actions: { display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end" },
-  btnScans: { background: "none", border: "1px solid #2a2a3a", borderRadius: 5, color: "#888", cursor: "pointer", fontSize: 10, padding: "2px 6px", fontFamily: "inherit", whiteSpace: "nowrap" },
-  btnEdit: { background: "none", border: "none", cursor: "pointer", fontSize: 14, padding: 0 },
+  btnScans:  { background: "none", border: "1px solid #2a2a3a", borderRadius: 5, color: "#888", cursor: "pointer", fontSize: 10, padding: "2px 6px", fontFamily: "inherit", whiteSpace: "nowrap" },
+  btnAtgard: { background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0, opacity: 0.5 },
+  btnEdit:   { background: "none", border: "none", cursor: "pointer", fontSize: 14, padding: 0 },
   editRow: { display: "flex", gap: 8, marginTop: 10, alignItems: "center" },
   editInput: { flex: 1, background: "#0f0f18", border: "1px solid #2a2a3a", color: "#f0f0f5", borderRadius: 6, padding: "5px 10px", fontSize: 12, outline: "none" },
   btnSave: { background: "#7c6af7", color: "#fff", border: "none", borderRadius: 6, padding: "5px 14px", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" },
