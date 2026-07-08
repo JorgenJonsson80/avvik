@@ -266,6 +266,33 @@ export function VeckaTab() {
         </div>
       </div>
 
+      {/* Jämförelse förra veckan */}
+      {prevKey && (
+        <div style={s.prevRow}>
+          <div style={s.prevLabel}>Förra veckan ({weekLabel(prevKey)}, {[...currWeekdays].length} matchade dagar)</div>
+          <div style={s.prevCells}>
+            <div style={s.prevCell}>
+              <span style={s.prevNum}>{prevTotal}</span>
+              <span style={s.prevCellLbl}>avvikelser</span>
+            </div>
+            <div style={s.prevCell}>
+              <span style={s.prevNum}>{fmtKr(prevKostnad)}</span>
+              <span style={s.prevCellLbl}>kostnad</span>
+            </div>
+            <div style={s.prevCell}>
+              <span style={s.prevNum}>{criticalCount(prev)}</span>
+              <span style={s.prevCellLbl}>{"< 30 min"}</span>
+            </div>
+            {["1","2","3"].map((z) => (
+              <div key={z} style={s.prevCell}>
+                <span style={{ ...s.prevNum, color: ZON_COLOR[z] }}>{prevByZon[z] || 0}</span>
+                <span style={s.prevCellLbl}>Zon {z}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={s.twoCol}>
         {/* Dag-för-dag */}
         <div style={s.panel}>
@@ -360,4 +387,10 @@ const s = {
   zonRow:    { display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #1a1a28", fontSize: 13 },
   kbanaRow:  { display: "flex", gap: 8, alignItems: "center", padding: "4px 0", fontSize: 12 },
   prevInfo:  { background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 8, padding: "10px 16px", fontSize: 12, color: "#666" },
+  prevRow:   { background: "#0f0f1a", border: "1px solid #2a2a3a", borderRadius: 10, padding: "12px 16px", marginBottom: 16 },
+  prevLabel: { fontSize: 10, color: "#7c6af7", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 },
+  prevCells: { display: "flex", gap: 12, flexWrap: "wrap" },
+  prevCell:  { display: "flex", flexDirection: "column", alignItems: "center", background: "#13131c", border: "1px solid #1e1e2e", borderRadius: 8, padding: "8px 14px", minWidth: 70 },
+  prevNum:   { fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: "#9ca3af" },
+  prevCellLbl: { fontSize: 10, color: "#555", textTransform: "uppercase", letterSpacing: 0.8, marginTop: 2 },
 };

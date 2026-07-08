@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import { useDeviations } from "../hooks/useDeviations.js";
+import { useSettings } from "../hooks/useSettings.js";
+import { useRader } from "../hooks/useRader.js";
 import { ScanDetailModal } from "./shared/ScanDetailModal.jsx";
 import { OrsaksSelect } from "./shared/OrsaksSelect.jsx";
 import { LoggaAtgardModal } from "./shared/LoggaAtgardModal.jsx";
@@ -9,6 +11,8 @@ import { exportDeviationsToExcel } from "../lib/exportExcel.js";
 
 export function HistorikTab() {
   const { deviations, loading, error, updateOrsak, updateKommentar } = useDeviations();
+  const { settings } = useSettings();
+  const { rader } = useRader();
   const [filterDatum, setFilterDatum] = useState("");
   const [filterOrsak, setFilterOrsak] = useState("");
   const [filterZon, setFilterZon] = useState("");
@@ -109,7 +113,7 @@ export function HistorikTab() {
         </select>
         <span style={s.count}>{filtered.length} poster</span>
         <button
-          onClick={() => exportDeviationsToExcel(filtered)}
+          onClick={() => exportDeviationsToExcel(filtered, { settings, rader })}
           disabled={filtered.length === 0}
           style={{ ...s.filterSelect, background: "#1a1a2e", color: filtered.length > 0 ? "#7c6af7" : "#333", border: "1px solid #2a2a4a", cursor: filtered.length > 0 ? "pointer" : "default", fontWeight: 600 }}
         >
