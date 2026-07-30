@@ -1,45 +1,50 @@
-# AvvikelseLive – Supabase-version
+# AvvikelseLive
 
-Ombyggnad av AvvikelseLive från single-file-artifact till ett riktigt Vite + React + Supabase-
-projekt, uppdelat i moduler med tester.
+AvvikelseLive är en webbapplikation för att registrera, analysera och följa upp avvikelser i lagerverksamhet.
 
-## Vad som redan finns här
+Projektet utgår från ett praktiskt behov: en avvikelse måste gå snabbt att registrera, vara möjlig att förstå i efterhand och kunna användas för att förbättra flödet. I stället för att behandla händelser som isolerade incidenter hjälper systemet verksamheten att se mönster, orsaker och effekten av genomförda åtgärder.
 
-```
-avvikelselive-projekt/
-├── .claude/skills/avvikelselive-supabase/SKILL.md   ← byggritningen (Claude Code läser denna)
-├── reference/AvvikelseLive-single-file-reference.html ← FACIT: färdiga prototypen, rör ej
-├── migration/LÄS-MIG.md                              ← så får du in din gamla data
-├── src/lib/                                           ← rena domänfunktioner (klara + testade)
-│   ├── classify.js   routes.js   dates.js   causes.js   orsak.js
-├── tests/                                             ← Vitest-tester (klara att köra)
-│   ├── classify.test.js  routes.test.js  dates.test.js  orsak.test.js
-└── package.json
-```
+## Funktioner
 
-`src/lib/` och `tests/` är redan klara — det är domänlogiken utbruten och låst med tester.
-Resten (Vite-scaffold, Supabase, komponenter) bygger du med Claude enligt SKILL.md.
+- Inloggning och datalagring via Supabase
+- Import av avvikelsedata från Excel
+- Historik över registrerade avvikelser och scanningar
+- Statistik- och veckovy för att följa mönster över tid
+- Analys av avvikelser och orsaker
+- Uppföljning av åtgärder
+- Export av data till Excel
+- Separat, testad domänlogik för bland annat klassificering, routing, datum och orsaker
 
-## Kom igång
+## Teknik
+
+- React
+- Vite
+- JavaScript
+- Supabase
+- Vitest
+- SheetJS / `xlsx`
+- GitHub Actions
+
+## Arkitektur och kvalitet
+
+Verksamhetslogiken ligger separat från gränssnittet i `src/lib/` och täcks av automatiserade tester i `tests/`. Det gör reglerna enklare att förstå, ändra och skydda mot regressioner när funktionaliteten utvecklas.
+
+Databasens struktur och ändringar ligger i `supabase/migrations/`.
+
+## Kör lokalt
 
 ```bash
 npm install
-npm test        # ska visa alla tester gröna
+npm test
+npm run dev
 ```
 
-Sen, i Claude Code:
+För att ansluta till en egen Supabase-instans, skapa en lokal miljöfil utifrån `.env.local.example` och ange projektets URL och nyckel.
 
-> "Läs avvikelselive-supabase-skillen och börja med steg 1 — scaffolda Vite + React +
-> Supabase och få login att funka. Inget mer än så."
+## AI-assisterad utveckling
 
-## Innan du bygger på allvar
+AvvikelseLive byggs i samarbete med Claude Code som en del av ett AI-assisterat utvecklingsflöde. Jag definierar verksamhetsproblemet, kraven, domänreglerna och prioriteringarna samt granskar och testar lösningen. Claude Code används för att snabba upp utforskning och implementation, medan produktbeslut, kvalitetssäkring och leveransansvar ligger hos mig.
 
-1. **Dumpa din gamla data** — följ `migration/LÄS-MIG.md`. Gör detta innan du stänger
-   artifact-appen.
-2. **Kör testerna** — `npm test`. De skyddar domänlogiken mot regressioner. Bygg vidare på dem.
+## Bakgrund
 
-## Viktigast att inte gå sönder
-
-Se SKILL.md, sektionen "Critical lesson learned" — kontroll/scan-orsak-buggen. Kort version:
-`inKontroll` är en markör, inte en orsak. `orsakBreakdown` litar bara på event-orsaker när de
-är genuint blandade. Det är därför `orsak.test.js` finns — håll den grön.
+Efter mer än två decennier inom lager och logistik vet jag att mjukvara bara skapar värde om den fungerar för människorna och flödet på golvet. AvvikelseLive kombinerar den erfarenheten med fullstackutveckling för att skapa ett verktyg som är förankrat i en verklig verksamhet.
