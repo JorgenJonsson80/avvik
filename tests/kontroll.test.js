@@ -87,6 +87,16 @@ describe("scanOrsak — prioritet tid > kontroll", () => {
     expect(scanOrsak(16, 0, false, "", "KG kyl")).toBe("Övrigt");
     expect(scanOrsak(10, 0, true, "Saldofel", "Loax")).toBe("Övrigt");
   });
+  it("kedja på P7 → Försent påfylld – saldo finns – A-Frame istället för Kontrollavvikelse", () => {
+    expect(scanOrsak(10, 11, true, "", "2", true)).toBe("Försent påfylld – saldo finns – A-Frame");
+  });
+  it("P7 utan kedja påverkas inte — faller tillbaka på dagsorsak som vanligt", () => {
+    expect(scanOrsak(10, 11, false, "Saldofel", "2", true)).toBe("Saldofel");
+  });
+  it("Före 08:00 / Utanför arbetstid vinner även för P7-kedjor", () => {
+    expect(scanOrsak(7, 28, true, "", "2", true)).toBe("Före 08:00");
+    expect(scanOrsak(15, 45, true, "", "2", true)).toBe("Utanför min arbetstid");
+  });
 });
 
 describe("kontrollStatsByVnr", () => {

@@ -46,12 +46,16 @@ export function kontrollStatsByVnr(markedScans) {
 
 // Prioritet: Loax/KG kyl (saknar rader-underlag, tidsregler blir missvisande) >
 // tid (Före 08:00 / Utanför arbetstid) > kontroll > dagsorsak
-export function scanOrsak(h, m, inKontroll, dayOrsak, zon) {
+//
+// P7-undantag: kedjor som börjar på P7 beror i praktiken nästan alltid på
+// sen A-Frame-påfyllning, inte på plockarens kontrollscanning — så de får
+// "Försent påfylld – saldo finns – A-Frame" som grund istället för Kontrollavvikelse.
+export function scanOrsak(h, m, inKontroll, dayOrsak, zon, isP7 = false) {
   if (zon === "Loax" || zon === "KG kyl") return "Övrigt";
   if (h !== null && h !== undefined) {
     if (h < 8) return "Före 08:00";
     if (h > 15 || (h === 15 && m >= 30)) return "Utanför min arbetstid";
   }
-  if (inKontroll) return "Kontrollavvikelse";
+  if (inKontroll) return isP7 ? "Försent påfylld – saldo finns – A-Frame" : "Kontrollavvikelse";
   return dayOrsak || "";
 }

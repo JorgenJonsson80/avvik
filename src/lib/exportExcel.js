@@ -1,4 +1,6 @@
 import * as XLSX from "xlsx";
+import { ORSAK_ANSVAR } from "./causes.js";
+import { vnrStreaks } from "./streaks.js";
 
 function fmtPct(n, total) { return total > 0 ? +((n / total * 100).toFixed(1)) : 0; }
 function fmtPromVal(avv, rad) { return rad > 0 ? +((avv / rad * 1000).toFixed(2)) : "—"; }
@@ -152,6 +154,19 @@ export function exportDeviationsToExcel(rows, options = {}) {
     }
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(perAvvRows), "Per avvikelse");
+
+  // ─── Sheet 7: Hög prioritet (Analys) — aktiva sviter ≥3 dagar i rad ─
+  // Samma tröskel som "hög" prio i Analys-fliken: pågående streak till senaste datadag.
+  const hogPrio = vnrStreaks(rows)
+    .filter((v) => v.streak >= 3 && v.active)
+    .sort((a, b) => b.streak - a.streak || b.total - a.total);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ["VNR", "Dagar i rad", "Totalt antal", "Lagerplats", "K-bana", "Zon", "Orsak", "Ansvar"],
+    ...hogPrio.map((v) => [
+      v.vnr, v.streak, v.total, v.location, v.kbana, zonLabel(v.zon || "?"),
+      v.orsak || "", ORSAK_ANSVAR[v.orsak] || "",
+    ]),
+  ]), "Hög prioritet");
 
   // ─── Spara ──────────────────────────────────────────────────────────
   const name = filename ?? `avvikelser_${uniqueDatum[0] ?? now.toISOString().slice(0, 10)}.xlsx`;

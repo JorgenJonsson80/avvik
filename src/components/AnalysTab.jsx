@@ -16,6 +16,7 @@ import { useDeviations } from "../hooks/useDeviations.js";
 import { orsakBreakdown } from "../lib/orsak.js";
 import { classifyLocation } from "../lib/classify.js";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
+import { vnrStreaks } from "../lib/streaks.js";
 import { LoggaAtgardModal } from "./shared/LoggaAtgardModal.jsx";
 
 function Badge({ text }) {
@@ -82,62 +83,11 @@ export function AnalysTab() {
   }, [filtered]);
 
   // ── Återkommande VNR + streaks ────────────────────────────────────────────
-  const vnrInfo = useMemo(() => {
-    const m = {};
-    for (const r of filtered) {
-      const datum = String(r.datum).slice(0, 10);
-      if (!m[r.vnr]) {
-        m[r.vnr] = {
-          days: new Set(),
-          total: 0,
-          zon: r.zon,
-          orsak: r.orsak,
-          location: r.locations?.[0] || "",
-          kbana: r.kbana || classifyLocation(r.locations?.[0]) || "",
-        };
-      }
-      m[r.vnr].days.add(datum);
-      m[r.vnr].total += r.count || 0;
-    }
-    return m;
-  }, [filtered]);
-
-  // Längsta konsekutiva svit (oavsett om aktiv eller inte)
-  const longestStreak = (daysSet) => {
-    const sorted = [...daysSet].sort();
-    if (sorted.length === 0) return 0;
-    let best = 1, cur = 1;
-    for (let i = 1; i < sorted.length; i++) {
-      const diff = Math.round(
-        (new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000
-      );
-      if (diff === 1) { cur++; best = Math.max(best, cur); }
-      else cur = 1;
-    }
-    return best;
-  };
-  const streakActive = (daysSet, lastDataDay) => {
-    const sorted = [...daysSet].sort();
-    return sorted[sorted.length - 1] === lastDataDay;
-  };
-  const lastDataDay = dates[dates.length - 1];
-
   const recurringAll = useMemo(() => {
-    return Object.entries(vnrInfo)
-      .map(([vnr, v]) => ({
-        vnr,
-        days: v.days.size,
-        streak: longestStreak(v.days),
-        active: streakActive(v.days, lastDataDay),
-        total: v.total,
-        zon: v.zon,
-        orsak: v.orsak,
-        location: v.location,
-        kbana: v.kbana,
-      }))
+    return vnrStreaks(filtered)
       .filter((v) => v.days > 1)
       .sort((a, b) => b.streak - a.streak || b.total - a.total);
-  }, [vnrInfo, lastDataDay]);
+  }, [filtered]);
 
   // ── Mest kritiska tidpunkt (timme med flest avvikelser) ───────────────────
   const hourStats = useMemo(() => {

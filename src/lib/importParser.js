@@ -226,7 +226,8 @@ export function parseX08(workbook) {
       ev.in_kontroll = kontrollKey.get(`${vnr}|${ev.tid}`) === true;
       let h = null, m = 0;
       if (ev.tid) { const p = ev.tid.split(":").map(Number); h = p[0]; m = p[1]; }
-      ev.orsak = scanOrsak(h, m, ev.in_kontroll, autoOrsak, zon);
+      const isP7 = kontrollArea(ev.location) === "P7";
+      ev.orsak = scanOrsak(h, m, ev.in_kontroll, autoOrsak, zon, isP7);
     }
 
     // Dagsorsak: autoOrsak om satt, annars dominant scan-orsak
