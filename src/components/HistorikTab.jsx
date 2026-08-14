@@ -113,7 +113,7 @@ export function HistorikTab() {
         </select>
         <span style={s.count}>{filtered.length} poster</span>
         <button
-          onClick={() => exportDeviationsToExcel(filtered, { settings, rader })}
+          onClick={() => exportDeviationsToExcel(filtered, { settings, rader, allDeviations: deviations })}
           disabled={filtered.length === 0}
           style={{ ...s.filterSelect, background: "#1a1a2e", color: filtered.length > 0 ? "#7c6af7" : "#333", border: "1px solid #2a2a4a", cursor: filtered.length > 0 ? "pointer" : "default", fontWeight: 600 }}
         >
