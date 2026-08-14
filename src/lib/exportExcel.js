@@ -7,12 +7,12 @@ function fmtPromVal(avv, rad) { return rad > 0 ? +((avv / rad * 1000).toFixed(2)
 function zonLabel(z) { return /^\d+$/.test(z) ? `Zon ${z}` : (z || "?"); }
 
 // Main export — accepts rows + optional context for rich multi-sheet output.
-// options: { filename, settings: { goal, cost, time_min }, rader: [{datum, zon1, zon2, zon3}] }
+// options: { filename, settings: { goal, cost }, rader: [{datum, zon1, zon2, zon3}], allDeviations }
 export function exportDeviationsToExcel(rows, options = {}) {
-  const { filename, settings = {}, rader = [] } = options;
-  const cost     = settings.cost     ?? 63;
-  const timePMin = settings.time_min ?? 13;
-  const goal     = settings.goal     ?? 2.0;
+  const { filename, settings = {}, rader = [], allDeviations } = options;
+  const cost        = settings.cost ?? 63;
+  const goal        = settings.goal ?? 2.0;
+  const minPerVnrDag = 2.5;
 
   // ─── Grundaggregat ──────────────────────────────────────────────────
   const totalCount  = rows.reduce((s, r) => s + (r.count || 0), 0);
@@ -20,7 +20,16 @@ export function exportDeviationsToExcel(rows, options = {}) {
   const uniqueDatum = [...new Set(rows.map((r) => String(r.datum).slice(0, 10)))].sort();
   const snittDag    = uniqueDatum.length ? Math.round(totalCount / uniqueDatum.length) : 0;
   const totalKr     = totalCount * cost;
-  const totalTimH   = +(totalCount * timePMin / 60).toFixed(1);
+
+  // Tid: unika VNR per dag × 2,5 min — flera missar på samma VNR samma dag
+  // räknas som en åtgärd, inte en per missad rad.
+  const vnrPerDag = {};
+  rows.forEach((r) => {
+    const d = String(r.datum).slice(0, 10);
+    (vnrPerDag[d] = vnrPerDag[d] || new Set()).add(r.vnr);
+  });
+  const uniqueVnrDagar = Object.values(vnrPerDag).reduce((s, set) => s + set.size, 0);
+  const totalTimH   = +(uniqueVnrDagar * minPerVnrDag / 60).toFixed(1);
   const heltid      = +(totalTimH / 8).toFixed(1);
 
   // Rader per zon (summerat över period)
@@ -59,7 +68,8 @@ export function exportDeviationsToExcel(rows, options = {}) {
     ["", ""],
     ["Kostnad per avvikelse (kr)", cost],
     ["Total kostnad (kr)", totalKr],
-    ["Minuter per avvikelse", timePMin],
+    ["Unika VNR-dagar", uniqueVnrDagar],
+    ["Minuter per unik VNR/dag", minPerVnrDag],
     ["Total nedlagd tid (tim)", totalTimH],
     ["Motsvarar heltidstjänster (40h/v)", heltid],
   ]), "Sammanfattning");
@@ -95,6 +105,7 @@ export function exportDeviationsToExcel(rows, options = {}) {
         const rd = zonRaderMap[z] || 0;
         return [zonLabel(z), n, fmtPct(n, totalCount), rd || "—", fmtPromVal(n, rd)];
       }),
+    ["Totalt", totalCount, fmtPct(totalCount, totalCount), totalRader || "—", totalRader ? fmtPromVal(totalCount, totalRader) : "—"],
   ]), "Per zon");
 
   // ─── Sheet 4: Per K-bana ────────────────────────────────────────────
@@ -157,7 +168,10 @@ export function exportDeviationsToExcel(rows, options = {}) {
 
   // ─── Sheet 7: Hög prioritet (Analys) — aktiva sviter ≥3 dagar i rad ─
   // Samma tröskel som "hög" prio i Analys-fliken: pågående streak till senaste datadag.
-  const hogPrio = vnrStreaks(rows)
+  // OBS: streaks räknas mot FULL historik (allDeviations), inte den exporterade
+  // (ev. datum-filtrerade) delmängden `rows` — annars kan en enda dags export
+  // aldrig innehålla en streak ≥3 och fliken blir alltid tom.
+  const hogPrio = vnrStreaks(allDeviations ?? rows)
     .filter((v) => v.streak >= 3 && v.active)
     .sort((a, b) => b.streak - a.streak || b.total - a.total);
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
