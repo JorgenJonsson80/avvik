@@ -6,13 +6,20 @@ export function LoggaAtgardModal({ vnr, location, kbana, onClose }) {
   const [text, setText] = useState("");
   const [av, setAv] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
 
   const today = new Date().toISOString().slice(0, 10);
 
   async function submit() {
     if (!text.trim()) return;
     setSaving(true);
-    await addAction({ vnr, datum: today, text: text.trim(), av: av.trim() || null, location: location || null, kbana: kbana || null });
+    setError(null);
+    const saved = await addAction({ vnr, datum: today, text: text.trim(), av: av.trim() || null, location: location || null, kbana: kbana || null });
+    setSaving(false);
+    if (!saved) {
+      setError("Kunde inte spara åtgärden — försök igen.");
+      return;
+    }
     onClose();
   }
 
@@ -43,6 +50,7 @@ export function LoggaAtgardModal({ vnr, location, kbana, onClose }) {
           </button>
           <button onClick={onClose} style={{ ...s.btn, background: "none", color: "#888", border: "1px solid #2a2a3a" }}>Avbryt</button>
         </div>
+        {error && <div style={{ fontSize: 12, color: "#f87171", marginTop: 10 }}>{error}</div>}
         <div style={s.hint}>Datum sätts till idag ({today}) — används som mätgräns för att se om åtgärden hjälpte.</div>
       </div>
     </div>

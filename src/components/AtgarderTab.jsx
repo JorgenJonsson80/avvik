@@ -68,6 +68,7 @@ export function AtgarderTab() {
   const [text, setText] = useState('');
   const [av, setAv] = useState('');
   const [manualVnr, setManualVnr] = useState('');
+  const [saveError, setSaveError] = useState(null);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -76,7 +77,7 @@ export function AtgarderTab() {
     if (!vnr) return;
     const match = data.find((d) => d.vnr === vnr);
     setForm({ vnr, location: match?.locations?.[0] || '', kbana: match?.kbana || '' });
-    setText(''); setAv('');
+    setText(''); setAv(''); setSaveError(null);
   }
 
   // Åtgärder berikade med effekt (före/efter).
@@ -91,7 +92,8 @@ export function AtgarderTab() {
 
   const submit = async () => {
     if (!form || !text.trim()) return;
-    await addAction({
+    setSaveError(null);
+    const saved = await addAction({
       vnr: form.vnr,
       datum: today,
       text: text.trim(),
@@ -99,6 +101,10 @@ export function AtgarderTab() {
       location: form.location || null,
       kbana: form.kbana || null,
     });
+    if (!saved) {
+      setSaveError('Kunde inte spara åtgärden — försök igen.');
+      return;
+    }
     setForm(null);
     setText('');
     setAv('');
@@ -174,12 +180,15 @@ export function AtgarderTab() {
               Spara
             </button>
             <button
-              onClick={() => setForm(null)}
+              onClick={() => { setForm(null); setSaveError(null); }}
               style={{ ...input, cursor: 'pointer', color: '#888' }}
             >
               Avbryt
             </button>
           </div>
+          {saveError && (
+            <div style={{ fontSize: 12, color: '#f87171', marginTop: 8 }}>{saveError}</div>
+          )}
           <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>
             Datum sätts till idag ({today}) — det blir mätgränsen för före/efter.
           </div>
@@ -273,7 +282,7 @@ export function AtgarderTab() {
                 <span style={{ color: '#888' }}> · {v.dagar} dagar · ×{v.total} totalt · {v.orsak || 'okänd orsak'}</span>
               </div>
               <button
-                onClick={() => { setForm({ vnr: v.vnr, location: v.location, kbana: v.kbana }); setText(''); setAv(''); }}
+                onClick={() => { setForm({ vnr: v.vnr, location: v.location, kbana: v.kbana }); setText(''); setAv(''); setSaveError(null); }}
                 style={{ ...input, background: '#1a1a2e', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
               >
                 + Logga åtgärd
