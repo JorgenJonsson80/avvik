@@ -7,6 +7,7 @@ export function ScanDetailModal({ deviation, onClose, onSave }) {
   const { scans, loading, updateScanOrsak } = useScans(deviation.id);
   const [localOrsak, setLocalOrsak] = useState({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
   function orsakFor(scan) {
     return localOrsak[scan.id] !== undefined ? localOrsak[scan.id] : (scan.orsak || deviation.orsak || "");
@@ -30,11 +31,14 @@ export function ScanDetailModal({ deviation, onClose, onSave }) {
 
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
     try {
       for (const [id, orsak] of Object.entries(localOrsak)) {
         await updateScanOrsak(id, orsak);
       }
       await onSave(dominant);
+    } catch (e) {
+      setSaveError(`Kunde inte spara alla orsaker (${e.message}) — de som redan sparats är kvar, försök igen.`);
     } finally {
       setSaving(false);
     }
@@ -102,10 +106,13 @@ export function ScanDetailModal({ deviation, onClose, onSave }) {
 
         {/* Footer */}
         <div style={s.footer}>
-          <span style={s.dim}>
-            Dominant orsak: <strong style={{ color: "#c0c0d0" }}>{dominant || "—"}</strong>
-            {isMixed && <span style={{ color: "#e879c5" }}> (blandad — VNR-dagen får dominant orsak)</span>}
-          </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={s.dim}>
+              Dominant orsak: <strong style={{ color: "#c0c0d0" }}>{dominant || "—"}</strong>
+              {isMixed && <span style={{ color: "#e879c5" }}> (blandad — VNR-dagen får dominant orsak)</span>}
+            </span>
+            {saveError && <span style={{ fontSize: 11, color: "#f87171" }}>{saveError}</span>}
+          </div>
           <button onClick={onClose} style={s.btnCancel}>Avbryt</button>
           <button
             onClick={handleSave}
