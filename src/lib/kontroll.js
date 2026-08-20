@@ -44,6 +44,16 @@ export function kontrollStatsByVnr(markedScans) {
   return stats;
 }
 
+// Arbetstidsfönster 08:00–15:30. Delad mellan scanOrsak() (per scan) och
+// importParser.js (dagsnivå-räknare beforeWork/afterHours) — en enda källa så
+// de två aldrig kan hamna i otakt om skifttiderna ändras.
+export function isBeforeWork(h) {
+  return h < 8;
+}
+export function isAfterHours(h, m) {
+  return h > 15 || (h === 15 && m >= 30);
+}
+
 // Prioritet: Loax/KG kyl (saknar rader-underlag, tidsregler blir missvisande) >
 // tid (Före 08:00 / Utanför arbetstid) > kontroll > dagsorsak
 //
@@ -53,8 +63,8 @@ export function kontrollStatsByVnr(markedScans) {
 export function scanOrsak(h, m, inKontroll, dayOrsak, zon, isP7 = false) {
   if (zon === "Loax" || zon === "KG kyl") return "Övrigt";
   if (h !== null && h !== undefined) {
-    if (h < 8) return "Före 08:00";
-    if (h > 15 || (h === 15 && m >= 30)) return "Utanför min arbetstid";
+    if (isBeforeWork(h)) return "Före 08:00";
+    if (isAfterHours(h, m)) return "Utanför min arbetstid";
   }
   if (inKontroll) return isP7 ? "Försent påfylld – saldo finns – A-Frame" : "Kontrollavvikelse";
   return dayOrsak || "";

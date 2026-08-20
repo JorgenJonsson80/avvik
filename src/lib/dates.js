@@ -60,3 +60,25 @@ export function fmtTimmar(mins) {
   if (h < 10) return h.toFixed(1) + " tim";
   return Math.round(h).toLocaleString("sv-SE") + " tim";
 }
+
+/**
+ * Avvikelsegrad i promille: avvikelser per 1000 plockade rader.
+ */
+export function promille(avv, rad) {
+  return rad > 0 ? (avv / rad * 1000) : null;
+}
+
+export function fmtProm(v) {
+  return v === null ? "—" : v.toFixed(2) + " ‰";
+}
+
+/**
+ * Färgkodar promillevärdet mot ett mål: grönt inom mål, gult upp till
+ * +25%, rött därutöver.
+ */
+export function goalColor(p, goal) {
+  if (p === null) return "#60a5fa";
+  if (p <= goal) return "#4ade80";
+  if (p <= goal * 1.25) return "#fbbf24";
+  return "#f87171";
+}

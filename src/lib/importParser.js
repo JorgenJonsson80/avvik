@@ -10,7 +10,7 @@ import * as XLSX from "xlsx";
 import { excelDateToISO } from "./dates.js";
 import { classifyLocation, getZon, stationToZon } from "./classify.js";
 import { getAvgangstid, minutesBeforeDeparture } from "./routes.js";
-import { markKontrollScans, kontrollStatsByVnr, kontrollArea, scanOrsak } from "./kontroll.js";
+import { markKontrollScans, kontrollStatsByVnr, kontrollArea, scanOrsak, isBeforeWork, isAfterHours } from "./kontroll.js";
 
 // ─── Tidstolkning ────────────────────────────────────────────────────────────
 
@@ -161,8 +161,8 @@ export function parseX08(workbook) {
       e.times.push(tStr);
       e.hours.push(t.h);
       if (tMs < e.firstTimeMs) e.firstTimeMs = tMs;
-      if (t.h > 15 || (t.h === 15 && t.m >= 30)) e.afterHours++;
-      if (t.h < 8) e.beforeWork++;
+      if (isAfterHours(t.h, t.m)) e.afterHours++;
+      if (isBeforeWork(t.h)) e.beforeWork++;
     }
 
     const avg = getAvgangstid(route);

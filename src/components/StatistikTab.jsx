@@ -3,11 +3,8 @@ import { useDeviations } from "../hooks/useDeviations.js";
 import { useRader } from "../hooks/useRader.js";
 import { useSettings } from "../hooks/useSettings.js";
 import { forEachOrsak } from "../lib/orsak.js";
-import { fmtKr, fmtTimmar } from "../lib/dates.js";
+import { fmtKr, fmtTimmar, promille, fmtProm, goalColor } from "../lib/dates.js";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
-
-function promille(avv, rad) { return rad > 0 ? avv / rad * 1000 : null; }
-function fmtProm(v) { return v === null ? "—" : v.toFixed(2) + " ‰"; }
 
 // Tomt fält ("" = orört) faller tillbaka på nuvarande värde; annars parseFloat.
 // `|| fallback` hade inte fungerat här — 0 är falsy, så man hade aldrig kunnat
@@ -16,13 +13,6 @@ function resolveNum(draft, fallback) {
   if (draft === "") return fallback;
   const n = parseFloat(draft);
   return Number.isNaN(n) ? fallback : n;
-}
-
-function goalColor(p, goal) {
-  if (p === null) return "#60a5fa";
-  if (p <= goal) return "#4ade80";
-  if (p <= goal * 1.25) return "#fbbf24";
-  return "#f87171";
 }
 
 function KpiCard({ label, value, sub, color, borderColor }) {
