@@ -122,11 +122,12 @@ export function ImportTab() {
 
       const devByVnr = new Map((upserted ?? []).map((d) => [d.vnr, d.id]));
       const scanRows = [];
+      const devIdsToClear = [];
       for (const g of groups) {
         if (!g.events?.length) continue;
         const devId = devByVnr.get(g.vnr);
         if (!devId) continue;
-        await supabase.from("scans").delete().eq("deviation_id", devId);
+        devIdsToClear.push(devId);
         const devOrsak = orsakFor(g) || g.orsak || "";
         for (const ev of g.events) {
           scanRows.push({ user_id: uid, deviation_id: devId, tid: ev.tid, location: ev.location,
@@ -134,6 +135,13 @@ export function ImportTab() {
             nasta_dag: ev.nasta_dag, min_fore_avgang: ev.min_fore_avgang,
             in_kontroll: ev.in_kontroll, orsak: devOrsak });
         }
+      }
+      // Batchad radering (ett anrop för alla VNR) istället för ett DELETE per
+      // VNR i loopen — samma nettoeffekt, men N+1 sekventiella round trips
+      // mot Supabase blir en.
+      if (devIdsToClear.length > 0) {
+        const { error: delErr } = await supabase.from("scans").delete().in("deviation_id", devIdsToClear);
+        if (delErr) throw new Error(delErr.message);
       }
       if (scanRows.length > 0) {
         const { error: scanErr } = await supabase.from("scans").insert(scanRows);
