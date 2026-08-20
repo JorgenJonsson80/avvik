@@ -4,16 +4,21 @@
 
 import { classifyLocation } from "./classify.js";
 
-function longestStreak(daysSet) {
+// Sviten som slutar på VNR:ns SENASTE dag — inte den längsta någonsin. En VNR
+// som hade 5 dagar i rad i juni, gick tyst, och dök upp en enda dag i juli
+// ska rapportera streak=1 (den dagen), inte streak=5 (junisviten). Annars
+// kan en gammal, avslutad svit felaktigt flaggas som "aktiv hög prio" bara
+// för att den råkar vara VNR:ns bästa svit historiskt.
+function trailingStreak(daysSet) {
   const sorted = [...daysSet].sort();
   if (sorted.length === 0) return 0;
-  let best = 1, cur = 1;
-  for (let i = 1; i < sorted.length; i++) {
+  let n = 1;
+  for (let i = sorted.length - 1; i > 0; i--) {
     const diff = Math.round((new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000);
-    if (diff === 1) { cur++; best = Math.max(best, cur); }
-    else cur = 1;
+    if (diff === 1) n++;
+    else break;
   }
-  return best;
+  return n;
 }
 
 function streakActive(daysSet, lastDataDay) {
@@ -48,7 +53,7 @@ export function vnrStreaks(rows) {
   return Object.entries(m).map(([vnr, v]) => ({
     vnr,
     days: v.days.size,
-    streak: longestStreak(v.days),
+    streak: trailingStreak(v.days),
     active: streakActive(v.days, lastDataDay),
     total: v.total,
     zon: v.zon,
