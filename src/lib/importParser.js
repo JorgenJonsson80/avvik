@@ -212,8 +212,17 @@ export function parseX08(workbook) {
     const routeCode   = routesArr[0] || "";
     const { tid: avgangstid, nastaDag } = getAvgangstid(routeCode);
     const minFore = firstTime && avgangstid ? minutesBeforeDeparture(firstTime, avgangstid) : null;
-    const zon   = getZon(locsArr[0] || "");
-    const kbana = classifyLocation(locsArr[0] || "") || "";
+
+    // Dominant plats (flest scans) avgör zon/K-bana — inte första scannade
+    // (kronologisk ordning säger inget om var problemet faktiskt sitter).
+    // Scannas VNR:n i flera zoner samma dag räknas den mot den som förekommer mest.
+    const locCounts = {};
+    for (const ev of e.events) {
+      if (ev.location) locCounts[ev.location] = (locCounts[ev.location] || 0) + 1;
+    }
+    const dominantLoc = Object.entries(locCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || locsArr[0] || "";
+    const zon   = getZon(dominantLoc);
+    const kbana = classifyLocation(dominantLoc) || "";
     const st    = kStats.get(vnr);
 
     const autoOrsak =
