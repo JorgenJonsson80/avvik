@@ -11,13 +11,15 @@
 //
 // Effektlogiken bor i lib/actionEffect.js (ren, testad). Här är bara UI.
 // ============================================================================
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useActions } from '../hooks/useActions.js';
 import { useDeviations } from '../hooks/useDeviations.js';
 import { useSettings } from '../hooks/useSettings.js';
+import { useOrgRole } from '../hooks/useOrgRole.js';
 import { withEffects, EFFECT_META } from '../lib/actionEffect.js';
 import { classifyLocation } from '../lib/classify.js';
 import { fmtKr } from '../lib/dates.js';
+import { supabase } from '../lib/supabase.js';
 
 const card = {
   background: '#13131c',
@@ -63,12 +65,18 @@ export function AtgarderTab() {
   const { deviations: data } = useDeviations();
   const { actions, loading, addAction, deleteAction } = useActions();
   const { settings } = useSettings();
+  const { isAdmin } = useOrgRole();
   const cost = parseFloat(settings.cost) || 63;
   const [form, setForm] = useState(null); // { vnr, location, kbana } när man loggar
   const [text, setText] = useState('');
   const [av, setAv] = useState('');
   const [manualVnr, setManualVnr] = useState('');
   const [saveError, setSaveError] = useState(null);
+  const [uid, setUid] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUid(data?.user?.id ?? null));
+  }, []);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -251,13 +259,15 @@ export function AtgarderTab() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => deleteAction(a.id)}
-                  title="Ta bort"
-                  style={{ ...input, cursor: 'pointer', color: '#666', padding: '4px 8px' }}
-                >
-                  ✕
-                </button>
+                {(a.user_id === uid || isAdmin) && (
+                  <button
+                    onClick={() => deleteAction(a.id)}
+                    title="Ta bort"
+                    style={{ ...input, cursor: 'pointer', color: '#666', padding: '4px 8px' }}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             );
           })}
