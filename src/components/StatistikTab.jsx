@@ -9,6 +9,15 @@ import { ORSAK_ANSVAR } from "../lib/causes.js";
 function promille(avv, rad) { return rad > 0 ? avv / rad * 1000 : null; }
 function fmtProm(v) { return v === null ? "—" : v.toFixed(2) + " ‰"; }
 
+// Tomt fält ("" = orört) faller tillbaka på nuvarande värde; annars parseFloat.
+// `|| fallback` hade inte fungerat här — 0 är falsy, så man hade aldrig kunnat
+// spara ett fält som 0.
+function resolveNum(draft, fallback) {
+  if (draft === "") return fallback;
+  const n = parseFloat(draft);
+  return Number.isNaN(n) ? fallback : n;
+}
+
 function goalColor(p, goal) {
   if (p === null) return "#60a5fa";
   if (p <= goal) return "#4ade80";
@@ -118,12 +127,22 @@ export function StatistikTab() {
   const promTot = promille(totalAvv, totalRader.tot);
   const pColor  = goalColor(promTot, goal);
 
+  function resetDrafts() {
+    setDraftGoal(""); setDraftCost(""); setDraftTime("");
+  }
+
+  function toggleSettings() {
+    resetDrafts();
+    setEditSettings((v) => !v);
+  }
+
   async function saveSettings() {
     await save({
-      goal:     parseFloat(draftGoal)  || settings.goal,
-      cost:     parseFloat(draftCost)  || settings.cost,
-      time_min: parseFloat(draftTime)  || settings.time_min,
+      goal:     resolveNum(draftGoal, settings.goal),
+      cost:     resolveNum(draftCost, settings.cost),
+      time_min: resolveNum(draftTime, settings.time_min),
     });
+    resetDrafts();
     setEditSettings(false);
   }
 
@@ -145,7 +164,7 @@ export function StatistikTab() {
           <option value="">Alla zoner</option>
           <option value="1">Zon 1</option><option value="2">Zon 2</option><option value="3">Zon 3</option>
         </select>
-        <button onClick={() => setEditSettings((v) => !v)} style={s.settBtn}>⚙ Inställningar</button>
+        <button onClick={toggleSettings} style={s.settBtn}>⚙ Inställningar</button>
       </div>
 
       {/* Inställningar */}
@@ -158,8 +177,8 @@ export function StatistikTab() {
             <input type="number"            defaultValue={settings.cost}     onChange={(e) => setDraftCost(e.target.value)} style={s.numIn} />
             <span style={s.dim}>Min/avv</span>
             <input type="number"            defaultValue={settings.time_min} onChange={(e) => setDraftTime(e.target.value)} style={s.numIn} />
-            <button onClick={saveSettings}           style={s.saveBtn}>Spara</button>
-            <button onClick={() => setEditSettings(false)} style={s.cancBtn}>Avbryt</button>
+            <button onClick={saveSettings} style={s.saveBtn}>Spara</button>
+            <button onClick={toggleSettings} style={s.cancBtn}>Avbryt</button>
           </div>
           <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>
             Mål {goal.toFixed(1)} ‰ · {cost} kr/avvikelse · {timePMin} min/avvikelse
