@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useDeviations } from "../hooks/useDeviations.js";
 import { useRader } from "../hooks/useRader.js";
+import { useOrgRole } from "../hooks/useOrgRole.js";
 import { supabase } from "../lib/supabase.js";
 import {
   detectFileType,
@@ -16,6 +17,7 @@ const ZON_BG = { "1": "#4ade80", "2": "#60a5fa", "3": "#f97316", "Loax": "#a78bf
 export function ImportTab() {
   const { deviations, refetch } = useDeviations();
   const { upsertRader }         = useRader();
+  const { isAdmin }             = useOrgRole();
   const fileInputRef            = useRef(null);
 
   const [dragOver,      setDragOver]      = useState(false);
@@ -305,14 +307,21 @@ export function ImportTab() {
             >
               {backupSaving ? "Sparar…" : "Lägg till (behåll befintlig data)"}
             </button>
-            <button
-              style={{ ...s.backupBtn, background: "#1a0d0d", color: "#f87171", border: "1px solid #3a1515" }}
-              onClick={() => handleBackupSave("återställ")}
-              disabled={backupSaving}
-            >
-              {backupSaving ? "Sparar…" : "Återställ (ersätt all data)"}
-            </button>
+            {isAdmin && (
+              <button
+                style={{ ...s.backupBtn, background: "#1a0d0d", color: "#f87171", border: "1px solid #3a1515" }}
+                onClick={() => handleBackupSave("återställ")}
+                disabled={backupSaving}
+              >
+                {backupSaving ? "Sparar…" : "Återställ (ersätt all data)"}
+              </button>
+            )}
           </div>
+          {!isAdmin && (
+            <div style={{ fontSize: 12, color: "#555", marginTop: 8 }}>
+              Bara admin kan ersätta all data — fråga en admin i teamet om det behövs.
+            </div>
+          )}
         </div>
       )}
       {backupStatus && (

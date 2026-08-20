@@ -13,10 +13,12 @@
 
 import { useState, useMemo } from "react";
 import { useDeviations } from "../hooks/useDeviations.js";
+import { useActions } from "../hooks/useActions.js";
 import { orsakBreakdown } from "../lib/orsak.js";
 import { classifyLocation } from "../lib/classify.js";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
 import { vnrStreaks } from "../lib/streaks.js";
+import { actionEffect, EFFECT_META } from "../lib/actionEffect.js";
 import { LoggaAtgardModal } from "./shared/LoggaAtgardModal.jsx";
 
 function Badge({ text }) {
@@ -34,8 +36,28 @@ function Badge({ text }) {
   );
 }
 
+// Markerar en rad som redan har en loggad åtgärd, så man inte utreder samma
+// VNR två gånger. Återanvänder actionEffect() (samma logik som Åtgärder-fliken)
+// för att visa om åtgärden faktiskt hjälpte, inte bara att en finns.
+function AtgardMarkering({ action, deviations }) {
+  if (!action) return null;
+  const eff = actionEffect(action.vnr, action.datum, deviations);
+  const m = EFFECT_META[eff.status];
+  return (
+    <span
+      title={`Åtgärd loggad ${action.datum}${action.av ? " · " + action.av : ""}: ${action.text}`}
+      style={{
+        fontSize: 10, fontWeight: 700, color: m.color,
+        border: `1px solid ${m.color}55`, borderRadius: 4,
+        padding: "1px 6px", whiteSpace: "nowrap",
+      }}
+    >✓ {action.datum.slice(5)} · {m.label}</span>
+  );
+}
+
 export function AnalysTab() {
   const { deviations, loading } = useDeviations();
+  const { actions: loggedActions } = useActions();
   const [filterDagar, setFilterDagar] = useState("30");
   const [copiedKey, setCopiedKey] = useState(null);
   const [atgardVnr, setAtgardVnr] = useState(null); // { vnr, location, kbana }
@@ -81,6 +103,15 @@ export function AnalysTab() {
     }
     return Object.entries(m).sort((a, b) => b[1].count - a[1].count);
   }, [filtered]);
+
+  // ── Senaste loggade åtgärd per VNR (för dubbeljobb-markering) ─────────────
+  const latestActionByVnr = useMemo(() => {
+    const m = {};
+    for (const a of loggedActions) {
+      if (!m[a.vnr]) m[a.vnr] = a; // loggedActions kommer sorterade nyast→äldst
+    }
+    return m;
+  }, [loggedActions]);
 
   // ── Återkommande VNR + streaks ────────────────────────────────────────────
   const recurringAll = useMemo(() => {
@@ -357,6 +388,7 @@ export function AnalysTab() {
                     {a.kbana && (
                       <span style={{ color: "#f97316", fontWeight: 700, fontSize: 11 }}>{a.kbana}</span>
                     )}
+                    <AtgardMarkering action={latestActionByVnr[a.vnr]} deviations={deviations} />
                   </div>
                   <div style={{ color: "#c0c0d0", marginTop: 4, fontSize: 13 }}>{a.text}</div>
                   {a.info && <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{a.info}</div>}
@@ -393,7 +425,10 @@ export function AnalysTab() {
                 border: v.active && v.streak >= 3 ? "1px solid #7a3030" : "1px solid transparent",
                 borderRadius: 6, padding: "8px 12px", fontSize: 12,
               }}>
-                <span style={{ fontFamily: "monospace", color: "#f0f0f5" }}>{v.vnr}</span>
+                <span style={{ fontFamily: "monospace", color: "#f0f0f5", display: "flex", alignItems: "center", gap: 6 }}>
+                  {v.vnr}
+                  <AtgardMarkering action={latestActionByVnr[v.vnr]} deviations={deviations} />
+                </span>
                 {v.location && <span style={{ fontSize: 11, color: "#8a8a9a", fontFamily: "monospace" }}>{v.location}</span>}
                 <span style={{
                   fontFamily: "monospace", fontWeight: 700,

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./lib/supabase.js";
+import { useOrgRole } from "./hooks/useOrgRole.js";
 import { HistorikTab }  from "./components/HistorikTab.jsx";
 import { ImportTab }   from "./components/ImportTab.jsx";
 import { StatistikTab } from "./components/StatistikTab.jsx";
@@ -48,6 +49,7 @@ const TABS = ["Importera", "Historik", "Statistik", "Vecka", "Analys", "Åtgärd
 function Shell({ session }) {
   const [tab, setTab]           = useState("Historik");
   const [clearing, setClearing] = useState(false);
+  const { isAdmin } = useOrgRole();
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -78,10 +80,12 @@ function Shell({ session }) {
             </button>
           ))}
         </nav>
-        <button style={{ ...styles.link, color: "#555", fontSize: 12, marginRight: 8 }}
-          onClick={handleClearData} disabled={clearing}>
-          {clearing ? "Rensar…" : "Rensa data"}
-        </button>
+        {isAdmin && (
+          <button style={{ ...styles.link, color: "#555", fontSize: 12, marginRight: 8 }}
+            onClick={handleClearData} disabled={clearing}>
+            {clearing ? "Rensar…" : "Rensa data"}
+          </button>
+        )}
         <button style={styles.link} onClick={handleLogout}>Logga ut</button>
       </header>
       <main style={styles.main}>
