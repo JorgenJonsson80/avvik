@@ -46,6 +46,16 @@ export function excelDateToISO(val) {
 }
 
 /**
+ * ISO-datum (YYYY-MM-DD) N dagar bakåt från idag. Används som default
+ * "senaste X dagar"-gräns så gammal historik inte skymmer aktuell data.
+ */
+export function daysAgoISO(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * Formaterar ett belopp till svensk kr-sträng.
  */
 export function fmtKr(n) {

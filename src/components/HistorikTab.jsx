@@ -8,12 +8,17 @@ import { LoggaAtgardModal } from "./shared/LoggaAtgardModal.jsx";
 import { ORSAKER, ORSAK_ANSVAR } from "../lib/causes.js";
 import { formatMinBefore } from "../lib/routes.js";
 import { exportDeviationsToExcel } from "../lib/exportExcel.js";
+import { daysAgoISO } from "../lib/dates.js";
 
 export function HistorikTab() {
   const { deviations, loading, error, updateOrsak, updateKommentar } = useDeviations();
   const { settings } = useSettings();
   const { rader } = useRader();
   const [filterDatum, setFilterDatum] = useState("");
+  // Default: visa bara senaste 90 dagarna så gammal historik inte skymmer aktuell data.
+  // Fälten är fria datumväljare — rensa fromDate för att se allt.
+  const [fromDate, setFromDate] = useState(() => daysAgoISO(90));
+  const [toDate, setToDate] = useState("");
   const [filterOrsak, setFilterOrsak] = useState("");
   const [filterZon, setFilterZon] = useState("");
   const [search, setSearch] = useState("");
@@ -31,7 +36,12 @@ export function HistorikTab() {
 
   const filtered = useMemo(() => {
     let rows = deviations;
-    if (filterDatum) rows = rows.filter((r) => String(r.datum).slice(0, 10) === filterDatum);
+    if (filterDatum) {
+      rows = rows.filter((r) => String(r.datum).slice(0, 10) === filterDatum);
+    } else {
+      if (fromDate) rows = rows.filter((r) => String(r.datum).slice(0, 10) >= fromDate);
+      if (toDate)   rows = rows.filter((r) => String(r.datum).slice(0, 10) <= toDate);
+    }
     if (filterOrsak) rows = rows.filter((r) => r.orsak === filterOrsak);
     if (filterZon)   rows = rows.filter((r) => r.zon === filterZon);
     if (search) {
@@ -44,7 +54,7 @@ export function HistorikTab() {
       );
     }
     return rows;
-  }, [deviations, filterDatum, filterOrsak, filterZon, search]);
+  }, [deviations, filterDatum, fromDate, toDate, filterOrsak, filterZon, search]);
 
   const byDate = useMemo(() => {
     const map = {};
@@ -95,6 +105,31 @@ export function HistorikTab() {
           <option value="">Alla datum</option>
           {allaDatum.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        <input
+          type="date"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          disabled={!!filterDatum}
+          title="Från datum"
+          style={{ ...s.filterSelect, opacity: filterDatum ? 0.4 : 1 }}
+        />
+        <input
+          type="date"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          disabled={!!filterDatum}
+          title="Till datum"
+          style={{ ...s.filterSelect, opacity: filterDatum ? 0.4 : 1 }}
+        />
+        {(fromDate || toDate) && !filterDatum && (
+          <button
+            onClick={() => { setFromDate(""); setToDate(""); }}
+            style={{ ...s.filterSelect, color: "#7c6af7" }}
+            title="Ta bort datumgränsen och visa all historik"
+          >
+            Visa allt
+          </button>
+        )}
         <input
           placeholder="Sök VNR, plats, tur, kommentar…"
           value={search}

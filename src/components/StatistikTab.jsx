@@ -3,7 +3,7 @@ import { useDeviations } from "../hooks/useDeviations.js";
 import { useRader } from "../hooks/useRader.js";
 import { useSettings } from "../hooks/useSettings.js";
 import { forEachOrsak } from "../lib/orsak.js";
-import { fmtKr, fmtTimmar, promille, fmtProm, goalColor } from "../lib/dates.js";
+import { fmtKr, fmtTimmar, promille, fmtProm, goalColor, daysAgoISO } from "../lib/dates.js";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
 
 // Tomt fält ("" = orört) faller tillbaka på nuvarande värde; annars parseFloat.
@@ -31,7 +31,9 @@ export function StatistikTab() {
   const { settings, save }      = useSettings();
 
   const [filterDatum,  setFilterDatum]  = useState("");
-  const [fromDate,     setFromDate]     = useState("");
+  // Default: senaste 90 dagarna, så gammal historik inte skymmer aktuell statistik.
+  // Rensa fältet (eller sätt ett tidigare datum) för att se längre bak.
+  const [fromDate,     setFromDate]     = useState(() => daysAgoISO(90));
   const [toDate,       setToDate]       = useState("");
   const [filterZon,    setFilterZon]    = useState("");
   const [editSettings, setEditSettings] = useState(false);
