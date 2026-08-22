@@ -26,16 +26,22 @@ function KpiCard({ label, value, sub, color, borderColor }) {
 }
 
 export function StatistikTab() {
-  const { deviations, loading } = useDeviations();
-  const { getRaderForDatum }    = useRader();
-  const { settings, save }      = useSettings();
-
   const [filterDatum,  setFilterDatum]  = useState("");
   // Default: senaste 90 dagarna, så gammal historik inte skymmer aktuell statistik.
   // Rensa fältet (eller sätt ett tidigare datum) för att se längre bak.
   const [fromDate,     setFromDate]     = useState(() => daysAgoISO(90));
   const [toDate,       setToDate]       = useState("");
   const [filterZon,    setFilterZon]    = useState("");
+
+  // Fetch matches exactly what's selected above — an exact date overrides
+  // the range, same precedence as the client-side filter further down —
+  // instead of always pulling the whole (unboundedly growing) table and
+  // discarding most of it here.
+  const { deviations, loading } = useDeviations(
+    filterDatum ? { datum: filterDatum } : { fromDate, toDate }
+  );
+  const { getRaderForDatum }    = useRader();
+  const { settings, save }      = useSettings();
   const [editSettings, setEditSettings] = useState(false);
   const [draftGoal,    setDraftGoal]    = useState("");
   const [draftCost,    setDraftCost]    = useState("");

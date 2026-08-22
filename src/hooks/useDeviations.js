@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase.js";
 
-export function useDeviations({ datum } = {}) {
+// fromDate/toDate are the same server-side bound every "date range" tab
+// already applies client-side after fetching everything — passing them
+// through to the query means the server does the filtering instead of
+// shipping the whole (unboundedly growing) table just to discard most of
+// it in the browser. Omit both to fetch everything, same as before —
+// tabs with a genuine "see all history" feature (cleared date field, "All"
+// option) keep working, since that's just fromDate/toDate coming back empty.
+export function useDeviations({ datum, fromDate, toDate } = {}) {
   const [deviations, setDeviations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,6 +30,8 @@ export function useDeviations({ datum } = {}) {
           .order("vnr")
           .range(from, from + PAGE_SIZE - 1);
         if (datum) q = q.eq("datum", datum);
+        if (fromDate) q = q.gte("datum", fromDate);
+        if (toDate) q = q.lte("datum", toDate);
         const { data, error: err } = await q;
         if (err) { setError(err.message); break; }
         allData = allData.concat(data ?? []);
@@ -33,7 +42,7 @@ export function useDeviations({ datum } = {}) {
     } finally {
       setLoading(false);
     }
-  }, [datum]);
+  }, [datum, fromDate, toDate]);
 
   useEffect(() => { fetch(); }, [fetch]);
 

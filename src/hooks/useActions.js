@@ -15,13 +15,29 @@ export function useActions() {
 
   const fetchActions = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('actions')
-      .select('*')
-      .order('datum', { ascending: false });
-    if (error) setError(error.message);
-    else setActions(data || []);
-    setLoading(false);
+    setError(null);
+    try {
+      // Same PostgREST server-side max_rows (default 1000) as useDeviations —
+      // paginate instead of a bare select(), or this silently truncates
+      // (not just costs bandwidth) once actions passes 1000 rows.
+      const PAGE_SIZE = 1000;
+      let allData = [];
+      let from = 0;
+      while (true) {
+        const { data, error: err } = await supabase
+          .from('actions')
+          .select('*')
+          .order('datum', { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+        if (err) { setError(err.message); break; }
+        allData = allData.concat(data ?? []);
+        if (!data || data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      setActions(allData);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
