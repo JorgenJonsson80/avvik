@@ -2,18 +2,21 @@ import { useState, useMemo } from "react";
 import { useDeviations } from "../hooks/useDeviations.js";
 import { useSettings } from "../hooks/useSettings.js";
 import { useRader } from "../hooks/useRader.js";
+import { useOrgRole } from "../hooks/useOrgRole.js";
 import { ScanDetailModal } from "./shared/ScanDetailModal.jsx";
 import { OrsaksSelect } from "./shared/OrsaksSelect.jsx";
 import { LoggaAtgardModal } from "./shared/LoggaAtgardModal.jsx";
+import { DeleteDaysModal } from "./shared/DeleteDaysModal.jsx";
 import { ORSAKER, ORSAK_ANSVAR } from "../lib/causes.js";
 import { formatMinBefore } from "../lib/routes.js";
 import { exportDeviationsToExcel } from "../lib/exportExcel.js";
 import { daysAgoISO } from "../lib/dates.js";
 
 export function HistorikTab() {
-  const { deviations, loading, error, updateOrsak, updateKommentar } = useDeviations();
+  const { deviations, loading, error, updateOrsak, updateKommentar, refetch: refetchDeviations } = useDeviations();
   const { settings } = useSettings();
-  const { rader } = useRader();
+  const { rader, refetch: refetchRader } = useRader();
+  const { isAdmin } = useOrgRole();
   const [filterDatum, setFilterDatum] = useState("");
   // Default: visa bara senaste 90 dagarna så gammal historik inte skymmer aktuell data.
   // Fälten är fria datumväljare — rensa fromDate för att se allt.
@@ -28,11 +31,26 @@ export function HistorikTab() {
   const [detailDev, setDetailDev] = useState(null);
   const [atgardDev, setAtgardDev] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [deleteScope, setDeleteScope] = useState(null); // array of "YYYY-MM-DD" datum som ska raderas, eller null
 
   const allaDatum = useMemo(
     () => [...new Set(deviations.map((r) => String(r.datum).slice(0, 10)))].sort().reverse(),
     [deviations]
   );
+
+  // Datum-omfånget för bulk-radering — styrs BARA av datumfiltren (inte
+  // orsak/zon/sök), eftersom "radera dagar" ska radera hela dagen, inte bara
+  // de rader som råkar matcha ett innehållsfilter.
+  const candidateDates = useMemo(() => {
+    if (filterDatum) return [filterDatum];
+    return allaDatum.filter((d) => (!fromDate || d >= fromDate) && (!toDate || d <= toDate));
+  }, [filterDatum, allaDatum, fromDate, toDate]);
+
+  function handleDeleted() {
+    setDeleteScope(null);
+    refetchDeviations();
+    refetchRader();
+  }
 
   const filtered = useMemo(() => {
     let rows = deviations;
@@ -154,6 +172,15 @@ export function HistorikTab() {
         >
           Exportera Excel
         </button>
+        {isAdmin && candidateDates.length > 0 && (
+          <button
+            onClick={() => setDeleteScope(candidateDates)}
+            title="Radera all data för de valda datumen (admin)"
+            style={{ ...s.filterSelect, background: "#1e1015", color: "#f87171", border: "1px solid #4a1e1e", fontWeight: 600 }}
+          >
+            Radera {candidateDates.length === 1 ? "dagen" : `${candidateDates.length} dagar`}
+          </button>
+        )}
       </div>
 
       {/* Tom-state */}
@@ -176,6 +203,15 @@ export function HistorikTab() {
               <span style={s.dateStats}>
                 {rows.length} unika VNR · {totalCount} avvikelser
               </span>
+              {isAdmin && (
+                <button
+                  onClick={() => setDeleteScope([datum])}
+                  title="Radera hela dagen (admin)"
+                  style={s.btnDeleteDay}
+                >
+                  🗑
+                </button>
+              )}
             </div>
             <div style={s.rowList}>
               {rows.map((dev) => {
@@ -292,6 +328,15 @@ export function HistorikTab() {
           onClose={() => setAtgardDev(null)}
         />
       )}
+      {deleteScope && (
+        <DeleteDaysModal
+          dates={deleteScope}
+          deviations={deviations}
+          rader={rader}
+          onClose={() => setDeleteScope(null)}
+          onDeleted={handleDeleted}
+        />
+      )}
     </div>
   );
 }
@@ -309,6 +354,7 @@ const s = {
   dateGroup: { marginBottom: 28 },
   dateHeader: { display: "flex", alignItems: "center", gap: 12, marginBottom: 8, fontSize: 11, color: "#7c6af7", fontWeight: 700, letterSpacing: 2, textTransform: "uppercase" },
   dateStats: { color: "#444", fontWeight: 400, letterSpacing: 0 },
+  btnDeleteDay: { marginLeft: "auto", background: "none", border: "none", color: "#663333", cursor: "pointer", fontSize: 12, padding: 0, opacity: 0.7 },
   rowList: { display: "flex", flexDirection: "column", gap: 4 },
   devRow: { background: "#13131c", border: "1px solid", borderRadius: 6, padding: "8px 12px", fontSize: 12 },
   devGrid: { display: "grid", gridTemplateColumns: "1fr 56px 44px 1fr 80px", gap: 8, alignItems: "center" },
