@@ -180,9 +180,28 @@ export function ImportTab() {
         }
       };
       if (mode === "återställ") {
-        await supabase.from("deviations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-        await batchWrite(backupRecords.map((r) => cleanDeviationRow({ ...r, user_id: uid })));
-        setBackupStatus({ ok: true, msg: `${backupRecords.length} poster återställda från backup.` });
+        // Upsert först, radera det som blev över — INTE radera-allt-sen-skriv-in.
+        // Om nätet dör mitt i en batch (upsert är idempotent, säkert att köra
+        // om) står du kvar med det mesta av datan intakt istället för hälften
+        // raderad och oåterställbar (retry på "insert" hade kraschat på
+        // dubblettnyckel för de batchar som redan lyckats).
+        const rows = backupRecords.map((r) => cleanDeviationRow({ ...r, user_id: uid }));
+        await batchWrite(rows, { onConflict: "org_id,datum,vnr" });
+
+        const backupKeys = new Set(backupRecords.map((r) => `${String(r.datum).slice(0, 10)}|${r.vnr}`));
+        const staleIds = deviations
+          .filter((d) => !backupKeys.has(`${String(d.datum).slice(0, 10)}|${d.vnr}`))
+          .map((d) => d.id);
+        for (let i = 0; i < staleIds.length; i += BATCH) {
+          const chunk = staleIds.slice(i, i + BATCH);
+          const { error } = await supabase.from("deviations").delete().in("id", chunk);
+          if (error) throw new Error(`Kunde inte ta bort gamla poster som saknas i backupen: ${error.message}`);
+        }
+        setBackupStatus({
+          ok: true,
+          msg: `${backupRecords.length} poster återställda från backup`
+            + (staleIds.length > 0 ? ` (${staleIds.length} poster som saknades i backupen togs bort).` : "."),
+        });
       } else {
         const byKey  = new Map(deviations.map((r) => [`${r.datum}|${r.vnr}`, r]));
         const rows   = backupRecords.map((r) => {
