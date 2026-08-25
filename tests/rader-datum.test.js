@@ -3,12 +3,13 @@
 // om Supabase returnerar date-kolumnen med tidsdel (t.ex. "2026-05-20T00:00:00+00:00").
 
 import { describe, it, expect } from "vitest";
+import { totalRader } from "../src/lib/rader.js";
 
 // Samma normaliserings-logik som getRaderForDatum ska använda.
 function getRaderForDatum(rader, datum) {
   const key = String(datum).slice(0, 10);
   return rader.find((r) => String(r.datum).slice(0, 10) === key)
-    ?? { zon1: 0, zon2: 0, zon3: 0 };
+    ?? { zon1: 0, zon2: 0, zon3: 0, total: 0 };
 }
 function promille(avv, rad) { return rad > 0 ? (avv / rad) * 1000 : null; }
 
@@ -28,7 +29,7 @@ describe("rader-datum matchning (promille-bugg)", () => {
 
   it("returnerar nollor (inte krasch) när datum saknas", () => {
     const rd = getRaderForDatum([], "2026-05-20");
-    expect(rd).toEqual({ zon1: 0, zon2: 0, zon3: 0 });
+    expect(rd).toEqual({ zon1: 0, zon2: 0, zon3: 0, total: 0 });
     expect(promille(5, rd.zon1 + rd.zon2 + rd.zon3)).toBe(null);
   });
 
@@ -38,5 +39,15 @@ describe("rader-datum matchning (promille-bugg)", () => {
       { datum: "2026-05-20", zon1: 10, zon2: 20, zon3: 30 },
     ];
     expect(getRaderForDatum(rader, "2026-05-20").zon2).toBe(20);
+  });
+
+  it("använder hela dagens rader när rapporten innehåller fler stationer än zon 1–3", () => {
+    const rd = { zon1: 1000, zon2: 2000, zon3: 500, total: 5000 };
+    expect(totalRader(rd)).toBe(5000);
+    expect(promille(7, totalRader(rd))).toBeCloseTo(1.4, 5);
+  });
+
+  it("faller tillbaka till zonerna för historiska importer utan total", () => {
+    expect(totalRader({ zon1: 1000, zon2: 2000, zon3: 500 })).toBe(3500);
   });
 });

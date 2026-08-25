@@ -5,6 +5,7 @@ import { useSettings } from "../hooks/useSettings.js";
 import { forEachOrsak } from "../lib/orsak.js";
 import { fmtKr, fmtTimmar, promille, fmtProm, goalColor, daysAgoISO } from "../lib/dates.js";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
+import { totalRader } from "../lib/rader.js";
 
 // Tomt fält ("" = orört) faller tillbaka på nuvarande värde; annars parseFloat.
 // `|| fallback` hade inte fungerat här — 0 är falsy, så man hade aldrig kunnat
@@ -73,12 +74,13 @@ export function StatistikTab() {
   const dates    = useMemo(() => [...new Set(filtered.map((r) => r.datum))].sort(), [filtered]);
 
   const totalRader = useMemo(() => {
-    let z1 = 0, z2 = 0, z3 = 0;
+    let z1 = 0, z2 = 0, z3 = 0, tot = 0;
     for (const d of dates) {
       const rd = getRaderForDatum(d);
       z1 += rd.zon1 || 0; z2 += rd.zon2 || 0; z3 += rd.zon3 || 0;
+      tot += totalRader(rd);
     }
-    return { z1, z2, z3, tot: z1 + z2 + z3 };
+    return { z1, z2, z3, tot };
   }, [dates, getRaderForDatum]);
 
   const avvPerZon = useMemo(() => {
@@ -118,7 +120,7 @@ export function StatistikTab() {
   const dagTrend = useMemo(() => dates.map((datum) => {
     const avv = filtered.filter((r) => r.datum === datum).reduce((s, r) => s + r.count, 0);
     const rd  = getRaderForDatum(datum);
-    const tot = (rd.zon1 || 0) + (rd.zon2 || 0) + (rd.zon3 || 0);
+    const tot = totalRader(rd);
     return { datum, avv, rader: tot, prom: promille(avv, tot) };
   }).reverse(), [dates, filtered, getRaderForDatum]);
 

@@ -74,7 +74,7 @@ export function ImportTab() {
         if (!useDatum) { setNeedsDatum(true); setError("Ange datum nedan — det hittades inte automatiskt i filen."); return; }
         setDatum(useDatum);
         await upsertRader({ datum: useDatum, ...rader });
-        setRaderInfo({ datum: useDatum, total: rader.zon1 + rader.zon2 + rader.zon3, ...rader });
+        setRaderInfo({ datum: useDatum, ...rader });
 
       } else if (type === "backup") {
         const { records, error: err } = await readBackupFile(file);
@@ -405,8 +405,15 @@ export function ImportTab() {
             <div style={{ marginTop: 12 }}>
               <div style={s.sectionHeader}>Nya avvikelser att bedöma ({newGroups.length})</div>
               <div style={s.rowList}>
-                {newGroups.map((g) => (
-                  <div key={g.vnr} style={s.devRow}>
+                {newGroups.map((g) => {
+                  const isRoute850 = String(g.route_code || "").trim() === "850";
+                  const isMissingOrsak = !orsakFor(g);
+                  return (
+                  <div key={g.vnr} style={{
+                    ...s.devRow,
+                    borderColor: isRoute850 ? "#f87171" : isMissingOrsak ? "#fbbf24" : "#1e1e2e",
+                    background: isRoute850 ? "#281217" : isMissingOrsak ? "#28220f" : "#13131c",
+                  }}>
                     <div style={s.devGrid}>
                       <span style={s.vnr}>
                         {g.vnr}
@@ -414,8 +421,8 @@ export function ImportTab() {
                         {g.kbana && <span style={s.kbana}> {g.kbana}</span>}
                         {g.first_time && <span style={s.times}> 🕐 {g.first_time}</span>}
                         {g.route_code && (
-                          <span style={s.routeMeta}>
-                            {" "}Tur {g.route_code}
+                          <span style={{ ...s.routeMeta, color: isRoute850 ? "#f87171" : s.routeMeta.color, fontWeight: isRoute850 ? 800 : 400 }}>
+                            {" "}{isRoute850 ? "⚠ TUR 850" : `Tur ${g.route_code}`}
                             {g.avgangstid && <span style={s.avg}> · avg {g.avgangstid}</span>}
                             {g.min_fore_avgang != null && (
                               <span style={{ color: g.min_fore_avgang < 60 ? "#f87171" : "#4ade80", fontWeight: 700 }}>
@@ -442,7 +449,8 @@ export function ImportTab() {
                       )}
                     </div>
                   </div>
-                ))}
+                );
+                })}
               </div>
             </div>
           )}

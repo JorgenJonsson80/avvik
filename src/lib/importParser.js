@@ -290,7 +290,8 @@ export async function readX08File(file) {
 // ─── Rader-parser ────────────────────────────────────────────────────────────
 
 /**
- * Parsar rader-rapport (plockade rader per station) till { datum, zon1, zon2, zon3 }.
+ * Parsar rader-rapport (plockade rader per station) till
+ * { datum, zon1, zon2, zon3, total }. `total` omfattar alla stationer i filen.
  * Returnerar { rader, datum, error }.
  */
 export function parseRader(workbook) {
@@ -332,10 +333,11 @@ export function parseRader(workbook) {
     detDatum = parseDatumCell(dataRows[0][datumCol]);
   }
 
-  const zonRader = { zon1: 0, zon2: 0, zon3: 0 };
+  const zonRader = { zon1: 0, zon2: 0, zon3: 0, total: 0 };
   for (const r of dataRows) {
     const z     = stationToZon(r[stationCol]);
     const antal = parseInt(r[raderCol], 10) || 0;
+    zonRader.total += antal;
     if (z === "1") zonRader.zon1 += antal;
     else if (z === "2") zonRader.zon2 += antal;
     else if (z === "3") zonRader.zon3 += antal;

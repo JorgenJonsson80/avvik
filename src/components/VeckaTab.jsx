@@ -4,6 +4,7 @@ import { useRader } from "../hooks/useRader.js";
 import { useSettings } from "../hooks/useSettings.js";
 import { classifyLocation, ALLA_ZONER } from "../lib/classify.js";
 import { fmtKr, fmtTimmar, promille, fmtProm, goalColor } from "../lib/dates.js";
+import { totalRader } from "../lib/rader.js";
 
 // ─── Veckologik ──────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export function VeckaTab() {
     let tot = 0;
     days.forEach((d) => {
       const rd = getRaderForDatum(d);
-      tot += (rd.zon1 || 0) + (rd.zon2 || 0) + (rd.zon3 || 0);
+      tot += totalRader(rd);
     });
     return tot;
   }, [current, getRaderForDatum]);
@@ -127,12 +128,12 @@ export function VeckaTab() {
   const daysInWeek = [...new Set(current.map((r) => r.datum))];
   const daysWithRader = daysInWeek.filter((d) => {
     const rd = getRaderForDatum(d);
-    return (rd.zon1 || 0) + (rd.zon2 || 0) + (rd.zon3 || 0) > 0;
+    return totalRader(rd) > 0;
   });
   const daysUnderGoal = daysWithRader.filter((d) => {
     const avv = current.filter((r) => r.datum === d).reduce((s, r) => s + r.count, 0);
     const rd  = getRaderForDatum(d);
-    const tot = (rd.zon1 || 0) + (rd.zon2 || 0) + (rd.zon3 || 0);
+    const tot = totalRader(rd);
     return promille(avv, tot) !== null && promille(avv, tot) <= goal;
   }).length;
 
@@ -156,7 +157,7 @@ export function VeckaTab() {
     const recs = current.filter((r) => r.datum === d);
     const avv  = sumCount(recs);
     const rd   = getRaderForDatum(d);
-    const tot  = (rd.zon1 || 0) + (rd.zon2 || 0) + (rd.zon3 || 0);
+    const tot  = totalRader(rd);
     const p    = promille(avv, tot);
     const wi   = weekdayIdx(d);
     return { datum: d, dag: SWE_DAYS[wi], avv, rader: tot, prom: p };

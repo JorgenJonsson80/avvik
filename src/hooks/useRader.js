@@ -34,7 +34,7 @@ async function upsertRader(row) {
   function getRaderForDatum(datum) {
     const key = String(datum).slice(0, 10);
     return rader.find((r) => String(r.datum).slice(0, 10) === key)
-      ?? { zon1: 0, zon2: 0, zon3: 0 };
+      ?? { zon1: 0, zon2: 0, zon3: 0, total: 0 };
   }
 
   return { rader, loading, upsertRader, getRaderForDatum, refetch: fetch };

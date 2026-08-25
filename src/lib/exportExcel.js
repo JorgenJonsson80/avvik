@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { ORSAK_ANSVAR } from "./causes.js";
 import { vnrStreaks } from "./streaks.js";
+import { totalRader } from "./rader.js";
 
 function fmtPct(n, total) { return total > 0 ? +((n / total * 100).toFixed(1)) : 0; }
 function fmtPromVal(avv, rad) { return rad > 0 ? +((avv / rad * 1000).toFixed(2)) : "—"; }
@@ -35,12 +36,13 @@ export function exportDeviationsToExcel(rows, options = {}) {
   // Rader per zon (summerat över period)
   const radByDatum = {};
   rader.forEach((r) => { radByDatum[String(r.datum).slice(0, 10)] = r; });
-  let rZ1 = 0, rZ2 = 0, rZ3 = 0;
+  let rZ1 = 0, rZ2 = 0, rZ3 = 0, rTot = 0;
   uniqueDatum.forEach((d) => {
     const rd = radByDatum[d] || {};
     rZ1 += rd.zon1 || 0; rZ2 += rd.zon2 || 0; rZ3 += rd.zon3 || 0;
+    rTot += totalRader(rd);
   });
-  const totalRader = rZ1 + rZ2 + rZ3;
+  const totalRows = rTot;
 
   const period = uniqueDatum.length === 1
     ? uniqueDatum[0]
@@ -63,8 +65,8 @@ export function exportDeviationsToExcel(rows, options = {}) {
     ["Snitt per dag", snittDag],
     ["", ""],
     ["Mål avvikelsegrad (‰)", goal],
-    ["Totalt antal rader", totalRader || "—"],
-    ["Avvikelsegrad (‰)", totalRader ? fmtPromVal(totalCount, totalRader) : "—"],
+    ["Totalt antal rader", totalRows || "—"],
+    ["Avvikelsegrad (‰)", totalRows ? fmtPromVal(totalCount, totalRows) : "—"],
     ["", ""],
     ["Kostnad per avvikelse (kr)", cost],
     ["Total kostnad (kr)", totalKr],
@@ -105,7 +107,7 @@ export function exportDeviationsToExcel(rows, options = {}) {
         const rd = zonRaderMap[z] || 0;
         return [zonLabel(z), n, fmtPct(n, totalCount), rd || "—", fmtPromVal(n, rd)];
       }),
-    ["Totalt", totalCount, fmtPct(totalCount, totalCount), totalRader || "—", totalRader ? fmtPromVal(totalCount, totalRader) : "—"],
+    ["Totalt", totalCount, fmtPct(totalCount, totalCount), totalRows || "—", totalRows ? fmtPromVal(totalCount, totalRows) : "—"],
   ]), "Per zon");
 
   // ─── Sheet 4: Per K-bana ────────────────────────────────────────────

@@ -216,8 +216,14 @@ export function HistorikTab() {
             <div style={s.rowList}>
               {rows.map((dev) => {
                 const isEditing = editId === dev.id;
+                const isRoute850 = String(dev.route_code || "").trim() === "850";
+                const isMissingOrsak = !dev.orsak || dev.orsak === "Okänd";
                 return (
-                  <div key={dev.id} style={{ ...s.devRow, borderColor: isEditing ? "#7c6af7" : "#1e1e2e", background: isEditing ? "#16162a" : "#13131c" }}>
+                  <div key={dev.id} style={{
+                    ...s.devRow,
+                    borderColor: isEditing ? "#7c6af7" : isRoute850 ? "#f87171" : isMissingOrsak ? "#fbbf24" : "#1e1e2e",
+                    background: isEditing ? "#16162a" : isRoute850 ? "#281217" : isMissingOrsak ? "#28220f" : "#13131c",
+                  }}>
                     <div style={s.devGrid}>
                       {/* VNR + meta */}
                       <span style={s.vnr}>
@@ -226,8 +232,8 @@ export function HistorikTab() {
                         {dev.kbana && <span style={s.kbana}> {dev.kbana}</span>}
                         {dev.times?.length > 0 && <span style={s.times}> 🕐 {dev.times.join(", ")}</span>}
                         {dev.route_code && (
-                          <span style={s.routeMeta}>
-                            {" "}Tur {dev.route_code}
+                          <span style={{ ...s.routeMeta, color: isRoute850 ? "#f87171" : s.routeMeta.color, fontWeight: isRoute850 ? 800 : 400 }}>
+                            {" "}{isRoute850 ? "⚠ TUR 850" : `Tur ${dev.route_code}`}
                             {dev.avgangstid && <span style={s.avg}> · avg {dev.avgangstid}</span>}
                             {dev.min_fore_avgang != null && (
                               <span style={{ color: dev.min_fore_avgang < 60 ? "#f87171" : "#4ade80", fontWeight: 700 }}>
@@ -249,7 +255,7 @@ export function HistorikTab() {
 
                       {/* Orsak + ansvar + kommentar */}
                       <span style={{ ...s.orsak, color: dev.orsak === "Okänd" || !dev.orsak ? "#f97316" : "#a0a0c0" }}>
-                        {dev.orsak || "Okänd"}
+                        {isMissingOrsak ? "⚠ Orsak saknas" : dev.orsak}
                         {ORSAK_ANSVAR[dev.orsak] && ORSAK_ANSVAR[dev.orsak] !== "—" && (
                           <span style={s.ansvar}> → {ORSAK_ANSVAR[dev.orsak]}</span>
                         )}
