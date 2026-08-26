@@ -7,12 +7,23 @@ export function useRader() {
 
   const fetch = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("rader")
-      .select("*")
-      .order("datum", { ascending: false });
+    // PostgREST har en server-side max_rows (default 1000) som limit() inte kan overrida.
+    // Paginera istället tills svaret är kortare än PAGE_SIZE.
+    const PAGE_SIZE = 1000;
+    let allData = [];
+    let from = 0;
+    while (true) {
+      const { data } = await supabase
+        .from("rader")
+        .select("*")
+        .order("datum", { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      allData = allData.concat(data ?? []);
+      if (!data || data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
     // Normalisera datum direkt — Supabase kan returnera "2026-05-20T00:00:00+00:00"
-    setRader((data ?? []).map((r) => ({ ...r, datum: String(r.datum).slice(0, 10) })));
+    setRader(allData.map((r) => ({ ...r, datum: String(r.datum).slice(0, 10) })));
     setLoading(false);
   }, []);
 
