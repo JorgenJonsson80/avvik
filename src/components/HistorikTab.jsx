@@ -174,7 +174,13 @@ export function HistorikTab() {
         </button>
         {isAdmin && candidateDates.length > 0 && (
           <button
-            onClick={() => setDeleteScope(candidateDates)}
+            onClick={() => {
+              // Färska siffror i bekräftelsemodalen — lokalt state kan vara
+              // inaktuellt om någon importerat data sedan fliken laddades.
+              refetchDeviations();
+              refetchRader();
+              setDeleteScope(candidateDates);
+            }}
             title="Radera all data för de valda datumen (admin)"
             style={{ ...s.filterSelect, background: "#1e1015", color: "#f87171", border: "1px solid #4a1e1e", fontWeight: 600 }}
           >

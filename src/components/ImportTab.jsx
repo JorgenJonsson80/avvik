@@ -8,6 +8,7 @@ import {
   readX08File, readRaderFile, readBackupFile,
   mergeDeviations, cleanDeviationRow,
 } from "../lib/importParser.js";
+import { restoreFromBackup } from "../lib/restoreBackup.js";
 import { OrsaksSelect } from "./shared/OrsaksSelect.jsx";
 import { ORSAK_ANSVAR } from "../lib/causes.js";
 import { formatMinBefore } from "../lib/routes.js";
@@ -180,35 +181,21 @@ export function ImportTab() {
         }
       };
       if (mode === "återställ") {
-        // Upsert först, radera det som blev över — INTE radera-allt-sen-skriv-in.
-        // Om nätet dör mitt i en batch (upsert är idempotent, säkert att köra
-        // om) står du kvar med det mesta av datan intakt istället för hälften
-        // raderad och oåterställbar (retry på "insert" hade kraschat på
-        // dubblettnyckel för de batchar som redan lyckats).
-        const rows = backupRecords.map((r) => cleanDeviationRow({ ...r, user_id: uid }));
-        await batchWrite(rows, { onConflict: "org_id,datum,vnr" });
-
-        const backupKeys = new Set(backupRecords.map((r) => `${String(r.datum).slice(0, 10)}|${r.vnr}`));
-        const staleIds = deviations
-          .filter((d) => !backupKeys.has(`${String(d.datum).slice(0, 10)}|${d.vnr}`))
-          .map((d) => d.id);
-        for (let i = 0; i < staleIds.length; i += BATCH) {
-          const chunk = staleIds.slice(i, i + BATCH);
-          const { error } = await supabase.from("deviations").delete().in("id", chunk);
-          if (error) throw new Error(`Kunde inte ta bort gamla poster som saknas i backupen: ${error.message}`);
-        }
+        const { restoredCount, removedCount } = await restoreFromBackup(supabase, {
+          backupRecords, existingDeviations: deviations, uid,
+        });
         setBackupStatus({
           ok: true,
-          msg: `${backupRecords.length} poster återställda från backup`
-            + (staleIds.length > 0 ? ` (${staleIds.length} poster som saknades i backupen togs bort).` : "."),
+          msg: `${restoredCount} poster återställda från backup`
+            + (removedCount > 0 ? ` (${removedCount} poster som saknades i backupen togs bort).` : "."),
         });
       } else {
         const byKey  = new Map(deviations.map((r) => [`${r.datum}|${r.vnr}`, r]));
         const rows   = backupRecords.map((r) => {
           const prev = byKey.get(`${r.datum}|${r.vnr}`);
-          return cleanDeviationRow({ ...r, user_id: uid, id: prev?.id,
+          return cleanDeviationRow({ ...r, user_id: uid,
             orsak:     prev?.orsak && prev.orsak !== "Okänd" ? prev.orsak : (r.orsak || ""),
-            kommentar: prev?.kommentar || r.kommentar || "" }, { keepId: true });
+            kommentar: prev?.kommentar || r.kommentar || "" });
         });
         await batchWrite(rows, { onConflict: "org_id,datum,vnr" });
         const nytt = backupRecords.filter((r) => !byKey.has(`${r.datum}|${r.vnr}`)).length;
