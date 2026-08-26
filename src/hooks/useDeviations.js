@@ -68,17 +68,5 @@ export function useDeviations({ datum, fromDate, toDate } = {}) {
     );
   }
 
- async function upsertMany(rows) {
-  // Strippa id/user_id ur varje rad — Postgres sätter dem via defaults,
-  // men bara om kolumnerna är helt frånvarande i anropet.
-  const payload = rows.map(({ id, user_id, ...rest }) => rest);
-
-  const { error: err } = await supabase
-    .from("deviations")
-    .upsert(payload, { onConflict: "org_id,datum,vnr" });
-  if (err) throw new Error(err.message);
-  await fetch();
-}
-
-  return { deviations, loading, error, refetch: fetch, updateOrsak, updateKommentar, upsertMany };
+  return { deviations, loading, error, refetch: fetch, updateOrsak, updateKommentar };
 }

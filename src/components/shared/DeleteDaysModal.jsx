@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase.js";
 import { deleteDays } from "../../lib/deleteDays.js";
+import { totalRader } from "../../lib/rader.js";
 
 // Admin-only, två-stegs bekräftelse för att radera hela dagar (alla VNR-rader,
 // deras scans, och rad-antalen för dagen). Ingen textbekräftelse — bara
@@ -18,7 +19,9 @@ export function DeleteDaysModal({ dates, deviations, rader, onClose, onDeleted }
     [deviations, dates]
   );
   const totalAvvikelser = devInScope.reduce((sum, d) => sum + (d.count || 0), 0);
-  const raderInScope = rader.filter((r) => dates.includes(String(r.datum).slice(0, 10))).length;
+  const raderInScope = rader
+    .filter((r) => dates.includes(String(r.datum).slice(0, 10)))
+    .reduce((sum, r) => sum + totalRader(r), 0);
 
   async function handleConfirm() {
     setBusy(true);
@@ -48,7 +51,7 @@ export function DeleteDaysModal({ dates, deviations, rader, onClose, onDeleted }
         <div style={s.stats}>
           <strong style={{ color: "#f0f0f5" }}>{devInScope.length}</strong> VNR-rader ·{" "}
           <strong style={{ color: "#f0f0f5" }}>{totalAvvikelser}</strong> avvikelser ·{" "}
-          <strong style={{ color: "#f0f0f5" }}>{raderInScope}</strong> rad-poster (plock) raderas permanent.
+          <strong style={{ color: "#f0f0f5" }}>{raderInScope.toLocaleString("sv-SE")}</strong> plockade rader raderas permanent.
         </div>
 
         {step === 1 && (
