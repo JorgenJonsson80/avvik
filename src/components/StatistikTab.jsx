@@ -73,7 +73,7 @@ export function StatistikTab() {
   const totalVnr = filtered.length;
   const dates    = useMemo(() => [...new Set(filtered.map((r) => r.datum))].sort(), [filtered]);
 
-  const totalRader = useMemo(() => {
+  const raderSummary = useMemo(() => {
     let z1 = 0, z2 = 0, z3 = 0, tot = 0;
     for (const d of dates) {
       const rd = getRaderForDatum(d);
@@ -124,7 +124,7 @@ export function StatistikTab() {
     return { datum, avv, rader: tot, prom: promille(avv, tot) };
   }).reverse(), [dates, filtered, getRaderForDatum]);
 
-  const promTot = promille(totalAvv, totalRader.tot);
+  const promTot = promille(totalAvv, raderSummary.tot);
   const pColor  = goalColor(promTot, goal);
 
   function resetDrafts() {
@@ -211,7 +211,7 @@ export function StatistikTab() {
       <div style={{ ...s.kpiGrid, gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 20 }}>
         {["1","2","3"].map((z) => {
           const avv = avvPerZon[z] || 0;
-          const rad = z === "1" ? totalRader.z1 : z === "2" ? totalRader.z2 : totalRader.z3;
+          const rad = z === "1" ? raderSummary.z1 : z === "2" ? raderSummary.z2 : raderSummary.z3;
           const p   = promille(avv, rad);
           return (
             <KpiCard
