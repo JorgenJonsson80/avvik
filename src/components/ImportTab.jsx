@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useDeviations } from "../hooks/useDeviations.js";
+import { useDeviationsContext } from "../context/DeviationsContext.jsx";
 import { useRader } from "../hooks/useRader.js";
 import { useOrgRole } from "../hooks/useOrgRole.js";
 import { supabase } from "../lib/supabase.js";
@@ -16,7 +16,7 @@ import { formatMinBefore } from "../lib/routes.js";
 const ZON_BG = { "1": "#4ade80", "2": "#60a5fa", "3": "#f97316", "Loax": "#a78bfa", "KG kyl": "#67e8f9", "?": "#6b7280" };
 
 export function ImportTab() {
-  const { deviations, refetch } = useDeviations();
+  const { deviations, refetch } = useDeviationsContext();
   const { upsertRader }         = useRader();
   const { isAdmin }             = useOrgRole();
   const fileInputRef            = useRef(null);

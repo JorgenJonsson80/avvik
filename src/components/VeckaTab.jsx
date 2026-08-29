@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useDeviations } from "../hooks/useDeviations.js";
+import { useDeviationsContext } from "../context/DeviationsContext.jsx";
 import { useRader } from "../hooks/useRader.js";
 import { useSettings } from "../hooks/useSettings.js";
 import { classifyLocation, ALLA_ZONER } from "../lib/classify.js";
@@ -57,7 +57,7 @@ function criticalCount(arr) {
 // ─── VeckaTab ────────────────────────────────────────────────────────────────
 
 export function VeckaTab() {
-  const { deviations, loading } = useDeviations();
+  const { deviations, loading } = useDeviationsContext();
   const { getRaderForDatum }    = useRader();
   const { settings }            = useSettings();
 

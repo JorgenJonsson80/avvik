@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./lib/supabase.js";
 import { useOrgRole } from "./hooks/useOrgRole.js";
+import { DeviationsProvider } from "./context/DeviationsContext.jsx";
 import { HistorikTab }  from "./components/HistorikTab.jsx";
 import { ImportTab }   from "./components/ImportTab.jsx";
 import { StatistikTab } from "./components/StatistikTab.jsx";
@@ -89,12 +90,19 @@ function Shell({ session }) {
         <button style={styles.link} onClick={handleLogout}>Logga ut</button>
       </header>
       <main style={styles.main}>
-        {tab === "Importera" && <ImportTab />}
-        {tab === "Historik"  && <HistorikTab />}
+        {/* Historik/Vecka/Analys/Åtgärder/Import all read the same unbounded
+            deviations fetch — sharing one instance here means switching
+            between them costs one fetch per session instead of one per
+            visit. Statistik has its own separate date-windowed fetch and
+            stays outside the provider. */}
+        <DeviationsProvider>
+          {tab === "Importera" && <ImportTab />}
+          {tab === "Historik"  && <HistorikTab />}
+          {tab === "Vecka"     && <VeckaTab />}
+          {tab === "Analys"    && <AnalysTab />}
+          {tab === "Åtgärder"  && <AtgarderTab />}
+        </DeviationsProvider>
         {tab === "Statistik" && <StatistikTab />}
-        {tab === "Vecka"     && <VeckaTab />}
-        {tab === "Analys"    && <AnalysTab />}
-        {tab === "Åtgärder"  && <AtgarderTab />}
       </main>
     </div>
   );

@@ -13,7 +13,7 @@
 // ============================================================================
 import { useState, useMemo, useEffect } from 'react';
 import { useActions } from '../hooks/useActions.js';
-import { useDeviations } from '../hooks/useDeviations.js';
+import { useDeviationsContext } from '../context/DeviationsContext.jsx';
 import { useSettings } from '../hooks/useSettings.js';
 import { useOrgRole } from '../hooks/useOrgRole.js';
 import { withEffects, EFFECT_META } from '../lib/actionEffect.js';
@@ -62,7 +62,7 @@ function computeRecurring(deviations) {
 }
 
 export function AtgarderTab() {
-  const { deviations: data } = useDeviations();
+  const { deviations: data } = useDeviationsContext();
   const { actions, loading, addAction, deleteAction } = useActions();
   const { settings } = useSettings();
   const { isAdmin } = useOrgRole();

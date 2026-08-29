@@ -12,7 +12,7 @@
 // (snake_case: route_code, min_fore_avgang osv).
 
 import { useState, useMemo } from "react";
-import { useDeviations } from "../hooks/useDeviations.js";
+import { useDeviationsContext } from "../context/DeviationsContext.jsx";
 import { useActions } from "../hooks/useActions.js";
 import { orsakBreakdown } from "../lib/orsak.js";
 import { classifyLocation } from "../lib/classify.js";
@@ -56,7 +56,7 @@ function AtgardMarkering({ action, deviations }) {
 }
 
 export function AnalysTab() {
-  const { deviations, loading } = useDeviations();
+  const { deviations, loading } = useDeviationsContext();
   const { actions: loggedActions } = useActions();
   const [filterDagar, setFilterDagar] = useState("30");
   const [copiedKey, setCopiedKey] = useState(null);

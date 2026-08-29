@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useDeviations } from "../hooks/useDeviations.js";
+import { useDeviationsContext } from "../context/DeviationsContext.jsx";
 import { useSettings } from "../hooks/useSettings.js";
 import { useRader } from "../hooks/useRader.js";
 import { useOrgRole } from "../hooks/useOrgRole.js";
@@ -13,7 +13,7 @@ import { exportDeviationsToExcel } from "../lib/exportExcel.js";
 import { daysAgoISO } from "../lib/dates.js";
 
 export function HistorikTab() {
-  const { deviations, loading, error, updateOrsak, updateKommentar, refetch: refetchDeviations } = useDeviations();
+  const { deviations, loading, error, updateOrsak, updateKommentar, refetch: refetchDeviations } = useDeviationsContext();
   const { settings } = useSettings();
   const { rader, refetch: refetchRader } = useRader();
   const { isAdmin } = useOrgRole();
