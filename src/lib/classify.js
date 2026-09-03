@@ -27,7 +27,7 @@ export function classifyLocation(loc) {
     const n = parseInt(t1011, 10);
     if (t7d || t8 === "A" || (t8 === "B" && !isNaN(n) && n >= 1 && n <= 13)) return "K55";
   }
-  if (stn === 36) return "K61-36";
+  if (stn === 36) return "K55"; // K61-36 slogs ihop med K55 2026-09 (samma fysiska K-bana)
   if (s.startsWith("P101")) {
     if (isEven) return "K51";
     if (isOdd && stn >= 10 && stn <= 14) return "K52";
