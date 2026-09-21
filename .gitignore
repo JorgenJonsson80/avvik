@@ -7,3 +7,6 @@ dist/
 
 # Migrerings-data innehåller riktig lagerdata — committa inte
 migration/*.json
+
+# Ångerfiler från scripts/backfill-kbana.mjs innehåller id:n från riktig data — committa inte
+scripts/backfill-kbana-undo-*.json
