@@ -28,11 +28,17 @@ describe("classifyLocation", () => {
     expect(classifyLocation("P4040-31")).toBe("K56"); // udda
   });
 
-  it("station 36 ger K55, oavsett prefix (K61-36 slogs ihop med K55 2026-09)", () => {
-    // P3036-10 matchar P3-regeln (t7='3' är siffra) => K55.
+  it("station 36 ger K61-36 (när P3-regeln inte triggar först)", () => {
+    // OBS: P3-prefix-regeln körs FÖRE station-36-regeln.
+    // P3036-10 matchar P3-regeln (t7='3' är siffra) => K55, inte K61-36.
     expect(classifyLocation("P3036-10")).toBe("K55");
-    // Alla andra station-36-platser ger också K55 sedan sammanslagningen.
-    expect(classifyLocation("P6036-10")).toBe("K55");
+    // En station-36-plats som inte triggar P3-regeln hamnar på K61-36.
+    expect(classifyLocation("P6036-10")).toBe("K61-36");
+  });
+
+  it("P3036 delas mellan K55 och K61-36 — de är separata K-banor och får inte slås ihop", () => {
+    expect(classifyLocation("P3036-10")).toBe("K55");     // P3-regeln träffar (t7 är siffra)
+    expect(classifyLocation("P3036-XC1")).toBe("K61-36"); // syntetisk plats: ingen P3-träff → station 36
   });
 
   it("returnerar null för okänd plats", () => {

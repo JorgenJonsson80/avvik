@@ -126,3 +126,24 @@ describe("exportDeviationsToExcel — Hög prioritet (aktiva sviter ≥3 dagar)"
     expect(s["Hög prioritet"]).toHaveLength(1); // bara header, ingen datarad
   });
 });
+
+describe("exportDeviationsToExcel — K55 och K61-36 hålls isär", () => {
+  // P3036 delas mellan K55 (P3-regeln) och K61-36 (övriga station 36) — exporten
+  // får aldrig slå ihop dem.
+  const kRows = [
+    { vnr: "111", datum: "2026-09-04", count: 2, zon: "3", kbana: "K55", orsak: "Saldofel",
+      locations: ["P3036-10"], times: ["08:10", "08:15"] },
+    { vnr: "222", datum: "2026-09-04", count: 1, zon: "3", kbana: "K61-36", orsak: "Saldofel",
+      locations: ["P3036-XC1"], times: ["09:00"] },
+  ];
+  const s = runExport(kRows);
+
+  it("Per K-bana: K55 och K61-36 blir två separata rader", () => {
+    expect(s["Per K-bana"].slice(1)).toEqual([["K55", 2, 66.7], ["K61-36", 1, 33.3]]);
+  });
+
+  it("Rådata och Per avvikelse: varje rad behåller sin egen K-bana", () => {
+    expect(s["Rådata"].slice(1).map((r) => r[3])).toEqual(["K55", "K61-36"]);
+    expect(s["Per avvikelse"].slice(1).map((r) => r[4])).toEqual(["K55", "K55", "K61-36"]);
+  });
+});

@@ -270,9 +270,10 @@ orsakBreakdown({ orsak:"Saldofel", count:10, events:[1×K,2×S] }) // sums to 10
 **Invariant under test:** `sum(orsakBreakdown(r)) === r.count` for every record. Always.
 
 **`classifyLocation` — guard against layout drift.** Lock known mappings (e.g. `P3036-10`→K55
-via the P3 rule; `P6036-10`→K55 too, since the station-36 rule was merged into K55 in 2026-09
-— K61-36 no longer occurs). This is the function most likely to silently break if the warehouse
-is rebuilt.
+via the P3 rule; `P6036-10`→K61-36 via the station-36 rule that runs after it). P3036 is split
+between K55 and K61-36 — they are separate K-banor and must NOT be merged (a merge in 2026-09
+was wrong and was reverted). This is the function most likely to silently break if the
+warehouse is rebuilt.
 
 **`getAvgangstid`** — lock exact-match (`802`→18:30 wins over the `8`→nästa-dag rule),
 range (`275`→18:00), and prefix-fallback (`350`→18:00).
